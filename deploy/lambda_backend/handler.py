@@ -1,6 +1,6 @@
 """
 Lambda handler for CloudFormation Builder Backend
-Uses FastAPI with Mangum adapter for Lambda
+Direct HTTP approach with SigV4 signing (no persistent MCP session)
 """
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,14 +8,10 @@ from pydantic import BaseModel
 from mangum import Mangum
 import boto3
 import os
-import sys
 import json
-
-# Add parent directory to import streamable_http_sigv4
-sys.path.insert(0, os.path.dirname(__file__))
-
-from streamable_http_sigv4 import streamablehttp_client_with_sigv4
-from mcp import ClientSession
+import urllib.request
+from botocore.auth import SigV4Auth
+from botocore.awsrequest import AWSRequest
 
 app = FastAPI(title="CloudFormation MCP Backend")
 
@@ -52,60 +48,45 @@ async def proxy_mcp(request: McpRequest):
         credentials = session.get_credentials()
         
         mcp_url = get_mcp_url()
+        request_body = json.dumps(request.dict())
         
-        # Connect with SigV4
-        async with streamablehttp_client_with_sigv4(
+        # Create AWS request for signing
+        aws_request = AWSRequest(
+            method='POST',
             url=mcp_url,
-            credentials=credentials,
-            service="bedrock-agentcore",
-            region=REGION,
-        ) as (read_stream, write_stream, _):
-            async with ClientSession(read_stream, write_stream) as mcp_session:
-                await mcp_session.initialize()
-                
-                # Route based on method
-                if request.method == "tools/list":
-                    result = await mcp_session.list_tools()
-                    return {
-                        "jsonrpc": "2.0",
-                        "id": request.id,
-                        "result": {
-                            "tools": [
-                                {
-                                    "name": tool.name,
-                                    "description": tool.description
-                                }
-                                for tool in result.tools
-                            ]
-                        }
-                    }
-                
-                elif request.method == "tools/call":
-                    tool_name = request.params.get("name")
-                    arguments = request.params.get("arguments", {})
-                    
-                    result = await mcp_session.call_tool(tool_name, arguments)
-                    
-                    # Extract text from result
-                    content = []
-                    for item in result.content:
-                        if item.type == "text":
-                            content.append({
-                                "type": "text",
-                                "text": item.text
-                            })
-                    
-                    return {
-                        "jsonrpc": "2.0",
-                        "id": request.id,
-                        "result": {
-                            "content": content,
-                            "isError": False
-                        }
-                    }
-                
-                else:
-                    raise HTTPException(status_code=400, detail=f"Unknown method: {request.method}")
+            data=request_body,
+            headers={
+                'Content-Type': 'application/json',
+                'Accept': 'application/json, text/event-stream',
+            }
+        )
+        
+        # Sign with SigV4
+        SigV4Auth(credentials, 'bedrock-agentcore', REGION).add_auth(aws_request)
+        
+        # Make request
+        req = urllib.request.Request(
+            mcp_url,
+            data=request_body.encode('utf-8'),
+            headers=dict(aws_request.headers)
+        )
+        
+        with urllib.request.urlopen(req, timeout=60) as response:
+            response_data = response.read().decode('utf-8')
+            print(f"Response from AgentCore: {response_data[:500]}")
+            
+            # Parse SSE format (event: message\ndata: {...})
+            if response_data.startswith('event:'):
+                lines = response_data.split('\n')
+                for line in lines:
+                    if line.startswith('data: '):
+                        json_data = line[6:]  # Remove 'data: ' prefix
+                        result = json.loads(json_data)
+                        break
+            else:
+                result = json.loads(response_data)
+        
+        return result
     
     except Exception as e:
         print(f"Error: {e}")

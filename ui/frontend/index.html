@@ -919,6 +919,9 @@
                 }
                 
                 currentTemplate = templateResult.template;
+                
+                // Display template in Monaco Editor
+                document.getElementById('templateContent').innerHTML = `
                     <div class="button-group">
                         <button class="aws-button aws-button-primary" onclick="validateTemplate()" id="validateBtn">
                             Validate Template

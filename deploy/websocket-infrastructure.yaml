@@ -69,12 +69,11 @@ Resources:
           from botocore.auth import SigV4Auth
           from botocore.awsrequest import AWSRequest
           import urllib.request
-          import threading
           
           AGENT_ARN = os.environ['AGENT_ARN']
           REGION = os.environ.get('REGION', 'us-east-1')
           
-          # API Gateway Management API client
+          # API Gateway Management API client (for sending messages)
           apigw = None
           
           def get_apigw_client(event):
@@ -93,100 +92,58 @@ Resources:
                       ConnectionId=connection_id,
                       Data=json.dumps(message)
                   )
-                  return True
               except Exception as e:
                   print(f"Error sending message: {e}")
-                  return False
           
-          def call_mcp_tool_async(connection_id, request_id, tool_name, arguments, event):
-              """Call MCP tool asynchronously and send result via WebSocket"""
-              try:
-                  # Send progress update
-                  send_message(connection_id, {
-                      'type': 'progress',
-                      'requestId': request_id,
-                      'progress': 50,
-                      'message': f'Processing {tool_name}...'
-                  }, event)
-                  
-                  session = boto3.Session()
-                  credentials = session.get_credentials()
-                  
-                  encoded_arn = AGENT_ARN.replace(':', '%3A').replace('/', '%2F')
-                  mcp_url = f"https://bedrock-agentcore.{REGION}.amazonaws.com/runtimes/{encoded_arn}/invocations?qualifier=DEFAULT"
-                  
-                  request_body = json.dumps({
-                      'jsonrpc': '2.0',
-                      'id': 1,
-                      'method': 'tools/call',
-                      'params': {
-                          'name': tool_name,
-                          'arguments': arguments
-                      }
-                  })
-                  
-                  aws_request = AWSRequest(
-                      method='POST',
-                      url=mcp_url,
-                      data=request_body,
-                      headers={
-                          'Content-Type': 'application/json',
-                          'Accept': 'application/json, text/event-stream',
-                      }
-                  )
-                  
-                  SigV4Auth(credentials, 'bedrock-agentcore', REGION).add_auth(aws_request)
-                  
-                  req = urllib.request.Request(
-                      mcp_url,
-                      data=request_body.encode('utf-8'),
-                      headers=dict(aws_request.headers)
-                  )
-                  
-                  with urllib.request.urlopen(req, timeout=300) as response:
-                      response_data = response.read().decode('utf-8')
-                      
-                      # Parse SSE format
-                      result = None
-                      if response_data.startswith('event:'):
-                          lines = response_data.split('\n')
-                          for line in lines:
-                              if line.startswith('data: '):
-                                  json_data = line[6:]
-                                  result = json.loads(json_data)
-                                  break
-                      else:
-                          if response_data.strip():
-                              result = json.loads(response_data)
-                      
-                      if result and result.get('result', {}).get('content'):
-                          content_text = result['result']['content'][0]['text']
-                          data = json.loads(content_text)
-                          
-                          # Send final response
-                          send_message(connection_id, {
-                              'type': 'response',
-                              'requestId': request_id,
-                              'tool': tool_name,
-                              'data': data,
-                              'status': 'completed'
-                          }, event)
-                      else:
-                          send_message(connection_id, {
-                              'type': 'error',
-                              'requestId': request_id,
-                              'error': 'No result from MCP server'
-                          }, event)
+          def call_mcp_tool(tool_name, arguments):
+              """Call MCP server via AgentCore"""
+              session = boto3.Session()
+              credentials = session.get_credentials()
               
-              except Exception as e:
-                  print(f"Error in async call: {e}")
-                  import traceback
-                  traceback.print_exc()
-                  send_message(connection_id, {
-                      'type': 'error',
-                      'requestId': request_id,
-                      'error': str(e)
-                  }, event)
+              encoded_arn = AGENT_ARN.replace(':', '%3A').replace('/', '%2F')
+              mcp_url = f"https://bedrock-agentcore.{REGION}.amazonaws.com/runtimes/{encoded_arn}/invocations?qualifier=DEFAULT"
+              
+              request_body = json.dumps({
+                  'jsonrpc': '2.0',
+                  'id': 1,
+                  'method': 'tools/call',
+                  'params': {
+                      'name': tool_name,
+                      'arguments': arguments
+                  }
+              })
+              
+              aws_request = AWSRequest(
+                  method='POST',
+                  url=mcp_url,
+                  data=request_body,
+                  headers={
+                      'Content-Type': 'application/json',
+                      'Accept': 'application/json, text/event-stream',
+                  }
+              )
+              
+              SigV4Auth(credentials, 'bedrock-agentcore', REGION).add_auth(aws_request)
+              
+              req = urllib.request.Request(
+                  mcp_url,
+                  data=request_body.encode('utf-8'),
+                  headers=dict(aws_request.headers)
+              )
+              
+              with urllib.request.urlopen(req, timeout=120) as response:
+                  response_data = response.read().decode('utf-8')
+                  
+                  # Parse SSE format
+                  if response_data.startswith('event:'):
+                      lines = response_data.split('\n')
+                      for line in lines:
+                          if line.startswith('data: '):
+                              json_data = line[6:]
+                              result = json.loads(json_data)
+                              return result
+                  else:
+                      return json.loads(response_data)
           
           def lambda_handler(event, context):
               route_key = event.get('requestContext', {}).get('routeKey')
@@ -211,22 +168,44 @@ Resources:
                       
                       print(f"Tool: {tool}, Request: {request_id}")
                       
-                      # Send acknowledgment immediately
+                      # Send acknowledgment
                       send_message(connection_id, {
                           'type': 'acknowledged',
                           'requestId': request_id,
                           'tool': tool
                       }, event)
                       
-                      # Start async processing in background thread
-                      # This allows Lambda to return within 30 seconds
-                      thread = threading.Thread(
-                          target=call_mcp_tool_async,
-                          args=(connection_id, request_id, tool, arguments, event)
-                      )
-                      thread.start()
+                      # Send progress
+                      send_message(connection_id, {
+                          'type': 'progress',
+                          'requestId': request_id,
+                          'progress': 10,
+                          'message': f'Calling {tool}...'
+                      }, event)
                       
-                      # Return immediately (within 30 seconds)
+                      # Call MCP tool
+                      result = call_mcp_tool(tool, arguments)
+                      
+                      # Parse result
+                      if result.get('result', {}).get('content'):
+                          content_text = result['result']['content'][0]['text']
+                          data = json.loads(content_text)
+                          
+                          # Send response
+                          send_message(connection_id, {
+                              'type': 'response',
+                              'requestId': request_id,
+                              'tool': tool,
+                              'data': data,
+                              'status': 'completed'
+                          }, event)
+                      else:
+                          send_message(connection_id, {
+                              'type': 'error',
+                              'requestId': request_id,
+                              'error': 'No result from MCP server'
+                          }, event)
+                      
                       return {'statusCode': 200}
                   
                   else:

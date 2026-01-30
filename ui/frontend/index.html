@@ -576,9 +576,17 @@
                 
                 currentTemplate = templateResult.template;
                 
-                // Display template with JSON formatting
+                // Display template with thinking process
                 const formattedTemplate = formatYamlAsJson(currentTemplate);
+                const thinkingHtml = templateResult.thinking ? `
+                    <div class="thinking-section" style="background: #1a1a2e; border: 1px solid #30363d; border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
+                        <h4 style="color: #79c0ff; margin-bottom: 0.5rem;">💭 Claude's Thinking Process</h4>
+                        <div style="color: #a5d6ff; font-size: 0.9rem; line-height: 1.6;">${formatTextResponse(templateResult.thinking)}</div>
+                    </div>
+                ` : '';
+                
                 document.getElementById('templateContent').innerHTML = `
+                    ${thinkingHtml}
                     <button class="copy-btn" onclick="copyTemplate()" id="copyBtn">📋 Copy</button>
                     <div class="template-display">${formattedTemplate}</div>
                 `;

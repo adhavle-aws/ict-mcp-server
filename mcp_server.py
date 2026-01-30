@@ -28,16 +28,16 @@ def build_cfn_template(prompt: str, format: str = "yaml") -> dict:
     Build a CloudFormation template from a natural language prompt using Claude.
     
     Args:
-        prompt: Natural language description of the infrastructure (e.g., "Create an S3 bucket with versioning")
+        prompt: Natural language description of the infrastructure
         format: Output format - 'json' or 'yaml' (default: yaml)
     
     Returns:
-        dict with success status and generated CloudFormation template
+        dict with success status, generated CloudFormation template, and thinking process
     """
     try:
         bedrock = get_bedrock_client()
         
-        # Create prompt for Claude
+        # Create prompt for Claude with extended thinking
         system_prompt = """You are a CloudFormation expert. Generate valid CloudFormation templates based on user requirements.
 
 Rules:
@@ -54,12 +54,16 @@ Output format: {format.upper()}
 
 Return ONLY the CloudFormation template, nothing else."""
 
-        # Call Claude via Bedrock
+        # Call Claude via Bedrock with extended thinking
         response = bedrock.invoke_model(
             modelId='us.anthropic.claude-3-5-sonnet-20241022-v2:0',
             body=json.dumps({
                 'anthropic_version': 'bedrock-2023-05-31',
                 'max_tokens': 4096,
+                'thinking': {
+                    'type': 'enabled',
+                    'budget_tokens': 2000
+                },
                 'system': system_prompt,
                 'messages': [
                     {
@@ -72,7 +76,16 @@ Return ONLY the CloudFormation template, nothing else."""
         
         # Parse response
         response_body = json.loads(response['body'].read())
-        template_str = response_body['content'][0]['text'].strip()
+        
+        # Extract thinking and template
+        thinking = ''
+        template_str = ''
+        
+        for content in response_body['content']:
+            if content['type'] == 'thinking':
+                thinking = content['thinking']
+            elif content['type'] == 'text':
+                template_str = content['text'].strip()
         
         # Clean up markdown code blocks if present
         if template_str.startswith('```'):
@@ -83,7 +96,8 @@ Return ONLY the CloudFormation template, nothing else."""
             'success': True,
             'template': template_str,
             'format': format,
-            'prompt': prompt
+            'prompt': prompt,
+            'thinking': thinking
         }
     except Exception as e:
         return {

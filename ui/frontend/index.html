@@ -348,8 +348,87 @@
     
     <script>
         const BACKEND_URL = 'https://tuzwz6hzq7.execute-api.us-east-1.amazonaws.com/prod';
+        const WS_URL = 'wss://197c9q4u8i.execute-api.us-east-1.amazonaws.com/prod';
         let currentTemplate = '';
         let sessionId = null;
+        let ws = null;
+        let requestCallbacks = new Map();
+        
+        // Initialize WebSocket
+        function initWebSocket() {
+            ws = new WebSocket(WS_URL);
+            
+            ws.onopen = () => {
+                console.log('✅ WebSocket connected');
+            };
+            
+            ws.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                console.log('📨 Received:', message);
+                
+                if (message.type === 'connected') {
+                    console.log('Connected with ID:', message.connectionId);
+                    return;
+                }
+                
+                const requestId = message.requestId;
+                if (requestId && requestCallbacks.has(requestId)) {
+                    const callbacks = requestCallbacks.get(requestId);
+                    
+                    if (message.type === 'progress') {
+                        callbacks.onProgress?.(message);
+                    } else if (message.type === 'response') {
+                        callbacks.onComplete?.(message.data);
+                        requestCallbacks.delete(requestId);
+                    } else if (message.type === 'error') {
+                        callbacks.onError?.(message.error);
+                        requestCallbacks.delete(requestId);
+                    }
+                }
+            };
+            
+            ws.onerror = (error) => {
+                console.error('❌ WebSocket error:', error);
+            };
+            
+            ws.onclose = () => {
+                console.log('🔌 WebSocket closed');
+                // Reconnect after 2 seconds
+                setTimeout(initWebSocket, 2000);
+            };
+        }
+        
+        // Initialize on page load
+        initWebSocket();
+        
+        function callMcpToolWs(toolName, args) {
+            return new Promise((resolve, reject) => {
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                    reject(new Error('WebSocket not connected'));
+                    return;
+                }
+                
+                const requestId = Date.now().toString();
+                
+                requestCallbacks.set(requestId, {
+                    onProgress: (data) => {
+                        console.log('Progress:', data);
+                    },
+                    onComplete: (data) => {
+                        resolve(data);
+                    },
+                    onError: (error) => {
+                        reject(new Error(error));
+                    }
+                });
+                
+                ws.send(JSON.stringify({
+                    id: requestId,
+                    tool: toolName,
+                    arguments: args
+                }));
+            });
+        }
         
         function switchTab(tabName) {
             // Update tab buttons
@@ -425,8 +504,9 @@
             document.getElementById('summaryContent').innerHTML = '<div class="loading">⏳ Performing Well-Architected review...<br><br>This uses Claude and may take 30-60 seconds</div>';
             
             try {
-                // Step 1: Build template
-                const templateResult = await callMcpTool('build_cfn_template', {
+                // Step 1: Build template (this is the critical one)
+                console.log('Step 1: Building template via WebSocket...');
+                const templateResult = await callMcpToolWs('build_cfn_template', {
                     prompt: prompt,
                     format: 'yaml'
                 });
@@ -437,52 +517,86 @@
                 
                 currentTemplate = templateResult.template;
                 
-                // Display template with JSON formatting
+                // Display template immediately
                 const formattedTemplate = formatYamlAsJson(currentTemplate);
                 document.getElementById('templateContent').innerHTML = `
                     <button class="copy-btn" onclick="copyTemplate()" id="copyBtn">📋 Copy</button>
                     <div class="template-display">${formattedTemplate}</div>
                 `;
                 
-                // Step 2: Generate architecture diagram
-                const archResult = await callMcpTool('generate_architecture_diagram', {
-                    template_body: currentTemplate
-                });
+                // Switch to template tab to show progress
+                switchTabByName('template');
                 
-                if (archResult.success) {
+                // Step 2-4: Run in parallel (non-blocking)
+                console.log('Steps 2-4: Running analysis in parallel...');
+                
+                // Architecture diagram
+                callMcpToolWs('generate_architecture_diagram', {
+                    template_body: currentTemplate
+                }).then(archResult => {
+                    if (archResult.success) {
+                        document.getElementById('architectureContent').innerHTML = `
+                            <div class="diagram-display">${formatTextResponse(archResult.diagram)}</div>
+                        `;
+                    } else {
+                        document.getElementById('architectureContent').innerHTML = `
+                            <div class="error">Failed to generate diagram: ${archResult.error}</div>
+                        `;
+                    }
+                }).catch(err => {
                     document.getElementById('architectureContent').innerHTML = `
-                        <div class="diagram-display">${formatTextResponse(archResult.diagram)}</div>
+                        <div class="error">Error: ${err.message}</div>
                     `;
-                }
-                
-                // Step 3: Cost optimization
-                const costResult = await callMcpTool('analyze_cost_optimization', {
-                    template_body: currentTemplate
                 });
                 
-                if (costResult.success) {
+                // Cost optimization
+                callMcpToolWs('analyze_cost_optimization', {
+                    template_body: currentTemplate
+                }).then(costResult => {
+                    if (costResult.success) {
+                        document.getElementById('costContent').innerHTML = `
+                            <div class="analysis-section">${formatTextResponse(costResult.analysis)}</div>
+                        `;
+                    } else {
+                        document.getElementById('costContent').innerHTML = `
+                            <div class="error">Failed to analyze costs: ${costResult.error}</div>
+                        `;
+                    }
+                }).catch(err => {
                     document.getElementById('costContent').innerHTML = `
-                        <div class="analysis-section">${formatTextResponse(costResult.analysis)}</div>
+                        <div class="error">Error: ${err.message}</div>
                     `;
-                }
-                
-                // Step 4: Well-Architected review
-                const reviewResult = await callMcpTool('well_architected_review', {
-                    template_body: currentTemplate
                 });
                 
-                if (reviewResult.success) {
+                // Well-Architected review
+                callMcpToolWs('well_architected_review', {
+                    template_body: currentTemplate
+                }).then(reviewResult => {
+                    if (reviewResult.success) {
+                        document.getElementById('summaryContent').innerHTML = `
+                            <div class="analysis-section">${formatTextResponse(reviewResult.review)}</div>
+                        `;
+                    } else {
+                        document.getElementById('summaryContent').innerHTML = `
+                            <div class="error">Failed to perform review: ${reviewResult.error}</div>
+                        `;
+                    }
+                }).catch(err => {
                     document.getElementById('summaryContent').innerHTML = `
-                        <div class="analysis-section">${formatTextResponse(reviewResult.review)}</div>
+                        <div class="error">Error: ${err.message}</div>
                     `;
-                }
-                
-                // Switch to architecture tab
-                switchTabByName('architecture');
+                });
                 
             } catch (error) {
                 alert('Error: ' + error.message);
                 console.error(error);
+                
+                // Show error in all tabs
+                const errorHtml = `<div class="error">❌ ${error.message}</div>`;
+                document.getElementById('architectureContent').innerHTML = errorHtml;
+                document.getElementById('costContent').innerHTML = errorHtml;
+                document.getElementById('templateContent').innerHTML = errorHtml;
+                document.getElementById('summaryContent').innerHTML = errorHtml;
             } finally {
                 sendBtn.disabled = false;
                 sendBtn.textContent = 'Send';

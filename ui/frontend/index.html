@@ -936,6 +936,9 @@
                         <button class="aws-button aws-button-primary" onclick="validateTemplate()" id="validateBtn">
                             Validate Template
                         </button>
+                        <button class="aws-button aws-button-secondary" onclick="generateDiagram()">
+                            Generate Diagram
+                        </button>
                         <button class="aws-button aws-button-secondary" onclick="copyTemplate()">
                             Copy Template
                         </button>
@@ -996,6 +999,49 @@
             } finally {
                 sendBtn.disabled = false;
                 sendBtn.textContent = 'Generate';
+            }
+        }
+        
+        async function generateDiagram() {
+            if (!currentTemplate) {
+                alert('Please generate a template first');
+                return;
+            }
+            
+            document.getElementById('diagramCanvas').innerHTML = `
+                <text x="50%" y="50%" text-anchor="middle" fill="#545b64" font-size="16">
+                    ⏳ Generating professional diagram...
+                </text>
+            `;
+            
+            // Switch to diagram view
+            switchTemplateView('diagram');
+            
+            try {
+                const diagramResult = await callMcpToolWs('generate_architecture_diagram', {
+                    template_body: currentTemplate
+                });
+                
+                if (diagramResult.success && diagramResult.image) {
+                    document.getElementById('diagramCanvas').innerHTML = `
+                        <image href="data:image/png;base64,${diagramResult.image}" 
+                               x="10" y="10" width="95%" height="95%" 
+                               preserveAspectRatio="xMidYMid meet"/>
+                    `;
+                } else {
+                    document.getElementById('diagramCanvas').innerHTML = `
+                        <text x="50%" y="50%" text-anchor="middle" fill="#d13212" font-size="14">
+                            ${diagramResult.error || 'Diagram generation failed'}
+                        </text>
+                    `;
+                }
+            } catch (e) {
+                console.error('Diagram generation failed:', e);
+                document.getElementById('diagramCanvas').innerHTML = `
+                    <text x="50%" y="50%" text-anchor="middle" fill="#d13212" font-size="14">
+                        Error: ${e.message}
+                    </text>
+                `;
             }
         }
         

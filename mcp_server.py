@@ -214,13 +214,18 @@ def generate_architecture_diagram(template_body: str) -> dict:
     Returns base64-encoded PNG image that can be displayed in the UI.
     """
     try:
+        print(f"Diagram generation - template length: {len(template_body)}")
+        print(f"Template starts with: {template_body[:100]}")
+        
         # Parse CloudFormation template to extract resources
         resources = parse_cfn_resources(template_body)
+        
+        print(f"Found {len(resources)} resources")
         
         if not resources:
             return {
                 'success': False,
-                'error': 'No resources found in template'
+                'error': f'No resources found in template. Template length: {len(template_body)}, starts with: {template_body[:50]}'
             }
         
         # Generate Python code for diagrams package

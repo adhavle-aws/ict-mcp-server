@@ -529,45 +529,37 @@
                 console.log('Step 2: Analyzing cost optimization...');
                 document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Step 2/4: Analyzing cost optimization opportunities...<br><br>This uses Claude and may take 30-60 seconds</div>';
                 
-                callMcpToolWs('analyze_cost_optimization', {
+                const costResult = await callMcpToolWs('analyze_cost_optimization', {
                     template_body: `Requirements: ${prompt}`
-                }).then(costResult => {
-                    if (costResult.success) {
-                        document.getElementById('costContent').innerHTML = `
-                            <div class="analysis-section">${formatTextResponse(costResult.analysis)}</div>
-                        `;
-                    } else {
-                        document.getElementById('costContent').innerHTML = `
-                            <div class="error">Failed to analyze costs: ${costResult.error}</div>
-                        `;
-                    }
-                }).catch(err => {
-                    document.getElementById('costContent').innerHTML = `
-                        <div class="error">Error: ${err.message}</div>
-                    `;
                 });
+                
+                if (costResult.success) {
+                    document.getElementById('costContent').innerHTML = `
+                        <div class="analysis-section">${formatTextResponse(costResult.analysis)}</div>
+                    `;
+                } else {
+                    document.getElementById('costContent').innerHTML = `
+                        <div class="error">Failed to analyze costs: ${costResult.error}</div>
+                    `;
+                }
                 
                 // Step 3: Well-Architected Review - Review before template
                 console.log('Step 3: Performing Well-Architected review...');
                 document.getElementById('summaryContent').innerHTML = '<div class="loading">⏳ Step 3/4: Performing Well-Architected Framework review...<br><br>This uses Claude and may take 30-60 seconds</div>';
                 
-                callMcpToolWs('well_architected_review', {
+                const reviewResult = await callMcpToolWs('well_architected_review', {
                     template_body: `Requirements: ${prompt}`
-                }).then(reviewResult => {
-                    if (reviewResult.success) {
-                        document.getElementById('summaryContent').innerHTML = `
-                            <div class="analysis-section">${formatTextResponse(reviewResult.review)}</div>
-                        `;
-                    } else {
-                        document.getElementById('summaryContent').innerHTML = `
-                            <div class="error">Failed to perform review: ${reviewResult.error}</div>
-                        `;
-                    }
-                }).catch(err => {
-                    document.getElementById('summaryContent').innerHTML = `
-                        <div class="error">Error: ${err.message}</div>
-                    `;
                 });
+                
+                if (reviewResult.success) {
+                    document.getElementById('summaryContent').innerHTML = `
+                        <div class="analysis-section">${formatTextResponse(reviewResult.review)}</div>
+                    `;
+                } else {
+                    document.getElementById('summaryContent').innerHTML = `
+                        <div class="error">Failed to perform review: ${reviewResult.error}</div>
+                    `;
+                }
                 
                 // Step 4: Build CloudFormation Template - Final step
                 console.log('Step 4: Building CloudFormation template...');

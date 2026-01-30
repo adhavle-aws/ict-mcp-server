@@ -874,43 +874,53 @@
                     prompt: prompt
                 });
                 
-                if (archResult.success) {
-                    document.getElementById('architectureContent').innerHTML = `
-                        <div class="markdown-content">${marked.parse(archResult.overview)}</div>
-                    `;
+                if (!archResult.success) {
+                    throw new Error(archResult.error);
                 }
+                
+                const architectureOverview = archResult.overview;
+                
+                document.getElementById('architectureContent').innerHTML = `
+                    <div class="markdown-content">${marked.parse(architectureOverview)}</div>
+                `;
                 
                 switchTabByName('architecture');
                 
-                // Step 2: Well-Architected Review (from prompt)
+                // Step 2: Well-Architected Review (using architecture overview)
                 document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Step 2/5: Performing Well-Architected Framework review...</div>';
                 const reviewResult = await callMcpToolWs('well_architected_review', {
-                    prompt: prompt
+                    prompt: architectureOverview
                 });
                 
-                if (reviewResult.success) {
-                    document.getElementById('reviewContent').innerHTML = `
-                        <div class="markdown-content">${marked.parse(reviewResult.review)}</div>
-                    `;
+                if (!reviewResult.success) {
+                    throw new Error(reviewResult.error);
                 }
                 
-                // Step 3: Cost Optimization (from prompt)
+                const wellArchitectedReview = reviewResult.review;
+                
+                document.getElementById('reviewContent').innerHTML = `
+                    <div class="markdown-content">${marked.parse(wellArchitectedReview)}</div>
+                `;
+                
+                // Step 3: Cost Optimization (using well-architected review)
                 document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Step 3/5: Analyzing cost optimization...</div>';
                 const costResult = await callMcpToolWs('analyze_cost_optimization', {
-                    prompt: prompt
+                    prompt: wellArchitectedReview
                 });
                 
-                if (costResult.success) {
-                    document.getElementById('costContent').innerHTML = `
-                        <div class="markdown-content">${marked.parse(costResult.analysis)}</div>
-                    `;
+                if (!costResult.success) {
+                    throw new Error(costResult.error);
                 }
                 
-                // Step 4: Generate CloudFormation Template
+                document.getElementById('costContent').innerHTML = `
+                    <div class="markdown-content">${marked.parse(costResult.analysis)}</div>
+                `;
+                
+                // Step 4: Generate CloudFormation Template (using architecture overview)
                 document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 4/5: Generating CloudFormation template...</div>';
                 
                 const templateResult = await callMcpToolWs('build_cfn_template', {
-                    prompt: prompt,
+                    prompt: architectureOverview,
                     format: 'yaml'
                 });
                 

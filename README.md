@@ -18,7 +18,7 @@ AI-powered infrastructure design platform that transforms natural language into 
 │                         User Interface                           │
 │                    (AWS Console-style Web UI)                    │
 │  • Natural language input                                        │
-│  • 4 tabs: Architecture (Canvas/Resources), Cost, Template,     │
+│  • 4 tabs: Architecture (Canvas/Resources), Cost, Template,      │
 │    Well-Architected Review                                       │
 │  • Professional diagram display with AWS icons                   │
 └────────────────────────┬────────────────────────────────────────┘
@@ -26,8 +26,8 @@ AI-powered infrastructure design platform that transforms natural language into 
                          │ No timeout limits
                          │
 ┌────────────────────────▼────────────────────────────────────────┐
-│              API Gateway (WebSocket API)                         │
-│  • Endpoint: z832i481e5.execute-api.us-east-1.amazonaws.com    │
+│              API Gateway (WebSocket API)                        │
+│  • Endpoint: z832i481e5.execute-api.us-east-1.amazonaws.com     │
 │  • Protocol: WebSocket                                          │
 │  • Routes: $connect, $default, $disconnect                      │
 │  • Real-time bidirectional communication                        │

@@ -1,0 +1,179 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation Builder UI - Backend Infrastructure
+
+Parameters:
+  AgentArn:
+    Type: String
+    Description: AgentCore Runtime ARN
+    Default: arn:aws:bedrock-agentcore:us-east-1:905767016260:runtime/mcp_server-CxkrO53RPH
+
+Resources:
+  # Lambda Execution Role
+  BackendLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BedrockAgentCoreAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock-agentcore:*
+                Resource: 'arn:aws:bedrock-agentcore:*:*:*'
+
+  # Lambda Function
+  BackendLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: cfn-builder-backend
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt BackendLambdaRole.Arn
+      Timeout: 600
+      MemorySize: 512
+      Environment:
+        Variables:
+          AGENT_ARN: !Ref AgentArn
+          REGION: !Ref AWS::Region
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          from botocore.auth import SigV4Auth
+          from botocore.awsrequest import AWSRequest
+          import urllib.request
+
+          AGENT_ARN = os.environ['AGENT_ARN']
+          REGION = os.environ.get('REGION', 'us-east-1')
+
+          def lambda_handler(event, context):
+              try:
+                  body = json.loads(event.get('body', '{}'))
+                  session = boto3.Session()
+                  credentials = session.get_credentials()
+                  
+                  encoded_arn = AGENT_ARN.replace(':', '%3A').replace('/', '%2F')
+                  mcp_url = f"https://bedrock-agentcore.{REGION}.amazonaws.com/runtimes/{encoded_arn}/invocations?qualifier=DEFAULT"
+                  
+                  request_body = json.dumps(body)
+                  
+                  aws_request = AWSRequest(
+                      method='POST',
+                      url=mcp_url,
+                      data=request_body,
+                      headers={
+                          'Content-Type': 'application/json',
+                          'Accept': 'application/json, text/event-stream',
+                      }
+                  )
+                  
+                  SigV4Auth(credentials, 'bedrock-agentcore', REGION).add_auth(aws_request)
+                  
+                  req = urllib.request.Request(
+                      mcp_url,
+                      data=request_body.encode('utf-8'),
+                      headers=dict(aws_request.headers)
+                  )
+                  
+                  with urllib.request.urlopen(req) as response:
+                      result = json.loads(response.read().decode('utf-8'))
+                  
+                  return {
+                      'statusCode': 200,
+                      'headers': {
+                          'Content-Type': 'application/json',
+                          'Access-Control-Allow-Origin': '*',
+                          'Access-Control-Allow-Headers': 'Content-Type',
+                          'Access-Control-Allow-Methods': 'POST, OPTIONS'
+                      },
+                      'body': json.dumps(result)
+                  }
+              except Exception as e:
+                  return {
+                      'statusCode': 500,
+                      'headers': {
+                          'Content-Type': 'application/json',
+                          'Access-Control-Allow-Origin': '*'
+                      },
+                      'body': json.dumps({'error': str(e)})
+                  }
+
+  # API Gateway
+  BackendApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: cfn-builder-api
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowMethods:
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+
+  # API Integration
+  ApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref BackendApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt BackendLambda.Arn
+      PayloadFormatVersion: '2.0'
+
+  # API Route
+  ApiRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref BackendApi
+      RouteKey: 'POST /api/mcp'
+      Target: !Sub 'integrations/${ApiIntegration}'
+
+  # API Stage
+  ApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref BackendApi
+      StageName: prod
+      AutoDeploy: true
+
+  # Lambda Permission (ONLY API Gateway can invoke)
+  ApiInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref BackendLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BackendApi}/*'
+  
+  # Lambda Resource Policy (Explicit - DENY all except API Gateway)
+  LambdaResourcePolicy:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref BackendLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BackendApi}/*/*'
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub 'https://${BackendApi}.execute-api.${AWS::Region}.amazonaws.com/prod'
+    Export:
+      Name: CfnBuilderApiEndpoint
+  
+  LambdaArn:
+    Description: Backend Lambda ARN
+    Value: !GetAtt BackendLambda.Arn

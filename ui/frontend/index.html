@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CloudFormation Builder</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+        
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+        
+        .sidebar {
+            width: 250px;
+            background: #16213e;
+            padding: 1.5rem;
+            border-right: 1px solid #2a2a4e;
+        }
+        
+        .sidebar h2 {
+            color: #667eea;
+            font-size: 1.2rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .agent-item {
+            background: #0f3460;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .agent-item.active {
+            background: #667eea;
+        }
+        
+        .agent-item:hover {
+            background: #5568d3;
+        }
+        
+        .agent-name {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+        
+        .agent-desc {
+            font-size: 0.85rem;
+            opacity: 0.8;
+        }
+        
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .chat-area {
+            flex: 1;
+            padding: 2rem;
+            overflow-y: auto;
+        }
+        
+        .message {
+            margin-bottom: 1.5rem;
+            padding: 1rem;
+            border-radius: 12px;
+            max-width: 80%;
+        }
+        
+        .message.user {
+            background: #667eea;
+            margin-left: auto;
+        }
+        
+        .message.assistant {
+            background: #2a2a4e;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            padding: 1rem 2rem 0 2rem;
+            border-bottom: 1px solid #2a2a4e;
+        }
+        
+        .tab {
+            padding: 0.75rem 1.5rem;
+            background: transparent;
+            border: none;
+            color: #999;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+        
+        .tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+        
+        .tab:hover {
+            color: #e0e0e0;
+        }
+        
+        .tab-content {
+            display: none;
+            padding: 2rem;
+            overflow-y: auto;
+            flex: 1;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .input-area {
+            padding: 1.5rem 2rem;
+            background: #16213e;
+            border-top: 1px solid #2a2a4e;
+        }
+        
+        .input-group {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        
+        textarea {
+            flex: 1;
+            padding: 1rem;
+            background: #0f3460;
+            border: 2px solid #2a2a4e;
+            border-radius: 12px;
+            color: #e0e0e0;
+            font-family: inherit;
+            font-size: 1rem;
+            resize: none;
+            min-height: 60px;
+        }
+        
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .send-btn {
+            padding: 1rem 2rem;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .send-btn:hover:not(:disabled) {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+        
+        .send-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .template-display {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 1.5rem;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            white-space: pre;
+            overflow-x: auto;
+            color: #c9d1d9;
+        }
+        
+        .template-display .json-key {
+            color: #79c0ff;
+        }
+        
+        .template-display .json-string {
+            color: #a5d6ff;
+        }
+        
+        .template-display .json-number {
+            color: #79c0ff;
+        }
+        
+        .template-display .json-boolean {
+            color: #ff7b72;
+        }
+        
+        .diagram-display {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 1.5rem;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 0.85rem;
+            line-height: 1.4;
+            white-space: pre;
+            overflow-x: auto;
+            color: #c9d1d9;
+        }
+        
+        .analysis-section {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            color: #c9d1d9;
+        }
+        
+        .analysis-section h3 {
+            color: #667eea;
+            margin-bottom: 1rem;
+        }
+        
+        .analysis-section strong {
+            color: #79c0ff;
+        }
+        
+        .analysis-section code {
+            background: #161b22;
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            color: #a5d6ff;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #999;
+        }
+        
+        .error {
+            background: #ff6b6b;
+            color: white;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        
+        .copy-btn {
+            float: right;
+            padding: 0.5rem 1rem;
+            background: #48bb78;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+        
+        .copy-btn:hover {
+            background: #38a169;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <h2>MWC Agents</h2>
+            <p style="font-size: 0.85rem; color: #999; margin-bottom: 1.5rem;">Multi-Agent Infrastructure System</p>
+            
+            <div class="agent-item active">
+                <div class="agent-name">OnboardingAgent</div>
+                <div class="agent-desc">Helps design and architect AWS solutions</div>
+            </div>
+            
+            <div class="agent-item" style="opacity: 0.5;">
+                <div class="agent-name">ProvisioningAgent</div>
+                <div class="agent-desc">Deploys CloudFormation stacks</div>
+            </div>
+            
+            <div class="agent-item" style="opacity: 0.5;">
+                <div class="agent-name">MWCAgent</div>
+                <div class="agent-desc">Orchestrates multi-agent workflows</div>
+            </div>
+        </div>
+        
+        <div class="main-content">
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('architecture')">Architecture Overview</button>
+                <button class="tab" onclick="switchTab('cost')">Cost Optimization Tips</button>
+                <button class="tab" onclick="switchTab('template')">CloudFormation Template</button>
+                <button class="tab" onclick="switchTab('summary')">Quick Summary</button>
+            </div>
+            
+            <div id="architecture" class="tab-content active">
+                <h2 style="color: #667eea; margin-bottom: 1rem;">Architecture Overview</h2>
+                <div id="architectureContent" class="loading">
+                    Generate a CloudFormation template to see the architecture diagram
+                </div>
+            </div>
+            
+            <div id="cost" class="tab-content">
+                <h2 style="color: #667eea; margin-bottom: 1rem;">Cost Optimization Tips</h2>
+                <div id="costContent" class="loading">
+                    Generate a CloudFormation template to see cost optimization recommendations
+                </div>
+            </div>
+            
+            <div id="template" class="tab-content">
+                <h2 style="color: #667eea; margin-bottom: 1rem;">CloudFormation Template</h2>
+                <button class="copy-btn" onclick="copyTemplate()" id="copyBtn" style="display: none;">📋 Copy</button>
+                <div id="templateContent" class="loading">
+                    Enter your requirements below to generate a CloudFormation template
+                </div>
+            </div>
+            
+            <div id="summary" class="tab-content">
+                <h2 style="color: #667eea; margin-bottom: 1rem;">Well-Architected Review</h2>
+                <div id="summaryContent" class="loading">
+                    Generate a CloudFormation template to see the Well-Architected review
+                </div>
+            </div>
+            
+            <div class="input-area">
+                <div class="input-group">
+                    <textarea 
+                        id="promptInput" 
+                        placeholder="Describe your infrastructure requirements...&#10;&#10;Example: Create a 3-tier web application with VPC, ALB, ECS, and RDS"
+                    ></textarea>
+                    <button class="send-btn" onclick="generateInfrastructure()" id="sendBtn">
+                        Send
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const BACKEND_URL = 'https://tuzwz6hzq7.execute-api.us-east-1.amazonaws.com/prod';
+        let currentTemplate = '';
+        let sessionId = null;
+        
+        function switchTab(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.getElementById(tabName).classList.add('active');
+        }
+        
+        async function callMcpTool(toolName, args) {
+            const headers = {
+                'Content-Type': 'application/json',
+            };
+            
+            if (sessionId) {
+                headers['X-Session-Id'] = sessionId;
+            }
+            
+            const response = await fetch(`${BACKEND_URL}/api/mcp`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: Date.now(),
+                    method: 'tools/call',
+                    params: {
+                        name: toolName,
+                        arguments: args
+                    }
+                })
+            });
+            
+            const newSessionId = response.headers.get('X-Session-Id');
+            if (newSessionId) {
+                sessionId = newSessionId;
+            }
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const result = await response.json();
+            
+            if (result.error) {
+                throw new Error(`MCP Error: ${result.error.message}`);
+            }
+            
+            if (result.result?.content?.[0]?.text) {
+                return JSON.parse(result.result.content[0].text);
+            }
+            
+            return null;
+        }
+        
+        async function generateInfrastructure() {
+            const prompt = document.getElementById('promptInput').value;
+            const sendBtn = document.getElementById('sendBtn');
+            
+            if (!prompt) {
+                alert('Please enter a prompt');
+                return;
+            }
+            
+            sendBtn.disabled = true;
+            sendBtn.textContent = 'Generating...';
+            
+            // Show loading in all tabs
+            document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Generating architecture diagram...</div>';
+            document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Analyzing cost optimization...</div>';
+            document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Building CloudFormation template...</div>';
+            document.getElementById('summaryContent').innerHTML = '<div class="loading">⏳ Performing Well-Architected review...</div>';
+            
+            try {
+                // Step 1: Build template
+                const templateResult = await callMcpTool('build_cfn_template', {
+                    prompt: prompt,
+                    format: 'yaml'
+                });
+                
+                if (!templateResult.success) {
+                    throw new Error(templateResult.error);
+                }
+                
+                currentTemplate = templateResult.template;
+                
+                // Display template with JSON formatting
+                const formattedTemplate = formatYamlAsJson(currentTemplate);
+                document.getElementById('templateContent').innerHTML = `
+                    <button class="copy-btn" onclick="copyTemplate()" id="copyBtn">📋 Copy</button>
+                    <div class="template-display">${formattedTemplate}</div>
+                `;
+                
+                // Step 2: Generate architecture diagram
+                const archResult = await callMcpTool('generate_architecture_diagram', {
+                    template_body: currentTemplate
+                });
+                
+                if (archResult.success) {
+                    document.getElementById('architectureContent').innerHTML = `
+                        <div class="diagram-display">${formatTextResponse(archResult.diagram)}</div>
+                    `;
+                }
+                
+                // Step 3: Cost optimization
+                const costResult = await callMcpTool('analyze_cost_optimization', {
+                    template_body: currentTemplate
+                });
+                
+                if (costResult.success) {
+                    document.getElementById('costContent').innerHTML = `
+                        <div class="analysis-section">${formatTextResponse(costResult.analysis)}</div>
+                    `;
+                }
+                
+                // Step 4: Well-Architected review
+                const reviewResult = await callMcpTool('well_architected_review', {
+                    template_body: currentTemplate
+                });
+                
+                if (reviewResult.success) {
+                    document.getElementById('summaryContent').innerHTML = `
+                        <div class="analysis-section">${formatTextResponse(reviewResult.review)}</div>
+                    `;
+                }
+                
+                // Switch to architecture tab
+                switchTabByName('architecture');
+                
+            } catch (error) {
+                alert('Error: ' + error.message);
+                console.error(error);
+            } finally {
+                sendBtn.disabled = false;
+                sendBtn.textContent = 'Send';
+            }
+        }
+        
+        function switchTabByName(tabName) {
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            const tabs = ['architecture', 'cost', 'template', 'summary'];
+            const index = tabs.indexOf(tabName);
+            if (index >= 0) {
+                document.querySelectorAll('.tab')[index].classList.add('active');
+                document.getElementById(tabName).classList.add('active');
+            }
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function formatYamlAsJson(yaml) {
+            // Syntax highlight YAML/JSON
+            return escapeHtml(yaml)
+                .replace(/^(\s*)([a-zA-Z_][a-zA-Z0-9_]*):(.*)$/gm, '$1<span class="json-key">$2</span>:$3')
+                .replace(/'([^']*)'/g, '<span class="json-string">\'$1\'</span>')
+                .replace(/"([^"]*)"/g, '<span class="json-string">"$1"</span>')
+                .replace(/\b(true|false)\b/g, '<span class="json-boolean">$1</span>')
+                .replace(/\b(\d+)\b/g, '<span class="json-number">$1</span>');
+        }
+        
+        function formatTextResponse(text) {
+            // Format text responses with syntax highlighting
+            return escapeHtml(text)
+                .replace(/\n/g, '<br>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #79c0ff;">$1</strong>')
+                .replace(/\*(.*?)\*/g, '<em style="color: #a5d6ff;">$1</em>')
+                .replace(/`([^`]+)`/g, '<code style="background: #161b22; padding: 0.2rem 0.4rem; border-radius: 4px; color: #a5d6ff;">$1</code>')
+                .replace(/^(#{1,6})\s+(.+)$/gm, (match, hashes, title) => {
+                    const level = hashes.length;
+                    return `<h${level} style="color: #667eea; margin: 1rem 0 0.5rem 0;">${title}</h${level}>`;
+                })
+                .replace(/^(\d+\.)\s+(.+)$/gm, '<span style="color: #79c0ff;">$1</span> $2')
+                .replace(/^[-*]\s+(.+)$/gm, '<span style="color: #79c0ff;">•</span> $1');
+        }
+        
+        function copyTemplate() {
+            navigator.clipboard.writeText(currentTemplate);
+            const btn = document.getElementById('copyBtn');
+            btn.textContent = '✅ Copied!';
+            setTimeout(() => {
+                btn.textContent = '📋 Copy';
+            }, 2000);
+        }
+        
+        // Handle Enter key
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('promptInput').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    generateInfrastructure();
+                }
+            });
+        });
+    </script>
+</body>
+</html>

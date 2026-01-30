@@ -416,13 +416,13 @@
             }
             
             sendBtn.disabled = true;
-            sendBtn.textContent = 'Generating...';
+            sendBtn.innerHTML = '<span class="loading">⏳</span> Generating (this may take 30-60 seconds)...';
             
             // Show loading in all tabs
-            document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Generating architecture diagram...</div>';
-            document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Analyzing cost optimization...</div>';
-            document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Building CloudFormation template...</div>';
-            document.getElementById('summaryContent').innerHTML = '<div class="loading">⏳ Performing Well-Architected review...</div>';
+            document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Generating architecture diagram...<br><br>This uses Claude and may take 30-60 seconds</div>';
+            document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Analyzing cost optimization...<br><br>This uses Claude and may take 30-60 seconds</div>';
+            document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Building CloudFormation template...<br><br>This uses Claude and may take 30-60 seconds</div>';
+            document.getElementById('summaryContent').innerHTML = '<div class="loading">⏳ Performing Well-Architected review...<br><br>This uses Claude and may take 30-60 seconds</div>';
             
             try {
                 // Step 1: Build template

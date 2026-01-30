@@ -39,6 +39,13 @@ class McpRequest(BaseModel):
     method: str
     params: dict = {}
 
+@app.options("/prod/api/mcp")
+async def options_mcp():
+    """Handle CORS preflight"""
+    return {
+        "message": "OK"
+    }
+
 @app.post("/prod/api/mcp")
 async def proxy_mcp(request: McpRequest):
     """Proxy MCP requests to AgentCore with SigV4 signing"""

@@ -1,0 +1,5 @@
+# System packages required for CloudFormation MCP Server
+# AgentCore will install these in the container
+
+graphviz
+graphviz-devel

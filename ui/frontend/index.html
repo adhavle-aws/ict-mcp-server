@@ -330,6 +330,94 @@
             gap: 1rem;
             margin-top: 1rem;
         }
+        
+        /* Architecture Container */
+        .architecture-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        
+        .architecture-toolbar {
+            display: flex;
+            background: var(--aws-bg-secondary);
+            border-bottom: 1px solid var(--aws-border-gray);
+            padding: 0;
+        }
+        
+        .arch-tab {
+            padding: 0.75rem 1.5rem;
+            background: transparent;
+            border: none;
+            color: var(--aws-text-secondary);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        
+        .arch-tab:hover {
+            color: var(--aws-text-primary);
+            background: rgba(0, 0, 0, 0.02);
+        }
+        
+        .arch-tab.active {
+            color: var(--aws-link-blue);
+            border-bottom-color: var(--aws-link-blue);
+            background: white;
+        }
+        
+        .arch-view {
+            flex: 1;
+            overflow: auto;
+            background: white;
+        }
+        
+        /* SVG Canvas */
+        #diagramCanvas {
+            background: #fafafa;
+            border: 1px solid var(--aws-border-gray);
+        }
+        
+        .resource-node {
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .resource-node:hover .resource-box {
+            stroke: var(--aws-smile-orange);
+            stroke-width: 2;
+        }
+        
+        .resource-box {
+            fill: white;
+            stroke: var(--aws-border-gray);
+            stroke-width: 1;
+            rx: 4;
+        }
+        
+        .resource-icon-bg {
+            fill: var(--aws-smile-orange);
+        }
+        
+        .resource-label {
+            font-size: 12px;
+            fill: var(--aws-text-primary);
+            font-weight: 600;
+        }
+        
+        .resource-type {
+            font-size: 10px;
+            fill: var(--aws-text-secondary);
+        }
+        
+        .connection-line {
+            stroke: #545b64;
+            stroke-width: 2;
+            fill: none;
+            marker-end: url(#arrowhead);
+        }
     </style>
 </head>
 <body>
@@ -366,8 +454,30 @@
             </div>
             
             <div id="architecture" class="tab-content active">
-                <div id="architectureContent" class="loading">
-                    Enter your infrastructure requirements below to begin
+                <div class="architecture-container">
+                    <div class="architecture-toolbar">
+                        <button class="arch-tab active" id="diagramViewBtn" onclick="switchArchView('diagram')">Canvas</button>
+                        <button class="arch-tab" id="textViewBtn" onclick="switchArchView('text')">Resources</button>
+                    </div>
+                    
+                    <div id="diagramView" class="arch-view">
+                        <svg id="diagramCanvas" width="100%" height="600">
+                            <defs>
+                                <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                                    <polygon points="0 0, 10 3, 0 6" fill="#545b64" />
+                                </marker>
+                            </defs>
+                            <text x="50%" y="50%" text-anchor="middle" fill="#545b64" font-size="16">
+                                Generate architecture to see visual diagram
+                            </text>
+                        </svg>
+                    </div>
+                    
+                    <div id="textView" class="arch-view" style="display: none;">
+                        <div id="architectureContent" class="loading">
+                            Enter your infrastructure requirements below to begin
+                        </div>
+                    </div>
                 </div>
             </div>
             
@@ -495,6 +605,218 @@
             document.getElementById(tabName).classList.add('active');
         }
         
+        function switchArchView(viewName) {
+            // Update toolbar buttons
+            document.querySelectorAll('.arch-tab').forEach(btn => btn.classList.remove('active'));
+            if (viewName === 'diagram') {
+                document.getElementById('diagramViewBtn').classList.add('active');
+            } else {
+                document.getElementById('textViewBtn').classList.add('active');
+            }
+            
+            // Update views
+            document.getElementById('diagramView').style.display = viewName === 'diagram' ? 'block' : 'none';
+            document.getElementById('textView').style.display = viewName === 'text' ? 'block' : 'none';
+        }
+        
+        function renderArchitectureDiagram(template) {
+            const svg = document.getElementById('diagramCanvas');
+            svg.innerHTML = `
+                <defs>
+                    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                        <polygon points="0 0, 10 3, 0 6" fill="#545b64" />
+                    </marker>
+                </defs>
+            `;
+            
+            // Parse template to extract resources
+            const resources = parseTemplateResources(template);
+            
+            if (resources.length === 0) {
+                svg.innerHTML += `<text x="50%" y="50%" text-anchor="middle" fill="#545b64" font-size="16">No resources found in template</text>`;
+                return;
+            }
+            
+            // Layout resources in a grid
+            const cols = Math.ceil(Math.sqrt(resources.length));
+            const nodeWidth = 140;
+            const nodeHeight = 80;
+            const spacing = 60;
+            const startX = 100;
+            const startY = 80;
+            
+            resources.forEach((resource, index) => {
+                const col = index % cols;
+                const row = Math.floor(index / cols);
+                const x = startX + col * (nodeWidth + spacing);
+                const y = startY + row * (nodeHeight + spacing);
+                
+                createResourceNode(svg, resource, x, y, nodeWidth, nodeHeight);
+            });
+            
+            // Draw connections
+            drawConnections(svg, resources, cols, nodeWidth, nodeHeight, spacing, startX, startY);
+        }
+        
+        function parseTemplateResources(template) {
+            const resources = [];
+            
+            try {
+                // Try to parse YAML-like structure
+                const lines = template.split('\n');
+                let inResources = false;
+                let currentResource = null;
+                
+                for (const line of lines) {
+                    if (line.trim() === 'Resources:') {
+                        inResources = true;
+                        continue;
+                    }
+                    
+                    if (inResources) {
+                        // Check for resource name (indented, ends with :)
+                        const resourceMatch = line.match(/^  (\w+):/);
+                        if (resourceMatch) {
+                            if (currentResource) {
+                                resources.push(currentResource);
+                            }
+                            currentResource = { name: resourceMatch[1], type: 'Unknown' };
+                        }
+                        
+                        // Check for Type property
+                        const typeMatch = line.match(/^\s+Type:\s*(.+)/);
+                        if (typeMatch && currentResource) {
+                            currentResource.type = typeMatch[1].trim();
+                        }
+                        
+                        // Stop at next top-level section
+                        if (line.match(/^[A-Z]/) && !line.startsWith('  ')) {
+                            if (currentResource) {
+                                resources.push(currentResource);
+                            }
+                            break;
+                        }
+                    }
+                }
+                
+                if (currentResource) {
+                    resources.push(currentResource);
+                }
+            } catch (e) {
+                console.error('Error parsing template:', e);
+            }
+            
+            return resources;
+        }
+        
+        function createResourceNode(svg, resource, x, y, width, height) {
+            const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            g.setAttribute('class', 'resource-node');
+            g.setAttribute('data-resource', resource.name);
+            
+            // Main box
+            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            rect.setAttribute('class', 'resource-box');
+            rect.setAttribute('x', x);
+            rect.setAttribute('y', y);
+            rect.setAttribute('width', width);
+            rect.setAttribute('height', height);
+            g.appendChild(rect);
+            
+            // Icon background
+            const iconBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            iconBg.setAttribute('class', 'resource-icon-bg');
+            iconBg.setAttribute('x', x + 10);
+            iconBg.setAttribute('y', y + 10);
+            iconBg.setAttribute('width', 30);
+            iconBg.setAttribute('height', 30);
+            iconBg.setAttribute('rx', 4);
+            g.appendChild(iconBg);
+            
+            // Icon text
+            const icon = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            icon.setAttribute('x', x + 25);
+            icon.setAttribute('y', y + 32);
+            icon.setAttribute('text-anchor', 'middle');
+            icon.setAttribute('fill', 'white');
+            icon.setAttribute('font-size', '16');
+            icon.setAttribute('font-weight', 'bold');
+            icon.textContent = getResourceIcon(resource.type);
+            g.appendChild(icon);
+            
+            // Resource name
+            const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            label.setAttribute('class', 'resource-label');
+            label.setAttribute('x', x + 10);
+            label.setAttribute('y', y + 55);
+            label.textContent = truncateText(resource.name, 16);
+            g.appendChild(label);
+            
+            // Resource type
+            const type = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            type.setAttribute('class', 'resource-type');
+            type.setAttribute('x', x + 10);
+            type.setAttribute('y', y + 70);
+            type.textContent = truncateText(getShortType(resource.type), 18);
+            g.appendChild(type);
+            
+            svg.appendChild(g);
+        }
+        
+        function drawConnections(svg, resources, cols, nodeWidth, nodeHeight, spacing, startX, startY) {
+            // Draw simple connections between adjacent resources
+            for (let i = 0; i < resources.length - 1; i++) {
+                const col1 = i % cols;
+                const row1 = Math.floor(i / cols);
+                const x1 = startX + col1 * (nodeWidth + spacing) + nodeWidth;
+                const y1 = startY + row1 * (nodeHeight + spacing) + nodeHeight / 2;
+                
+                const col2 = (i + 1) % cols;
+                const row2 = Math.floor((i + 1) / cols);
+                const x2 = startX + col2 * (nodeWidth + spacing);
+                const y2 = startY + row2 * (nodeHeight + spacing) + nodeHeight / 2;
+                
+                // Only draw horizontal connections
+                if (row1 === row2) {
+                    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    line.setAttribute('class', 'connection-line');
+                    line.setAttribute('x1', x1);
+                    line.setAttribute('y1', y1);
+                    line.setAttribute('x2', x2);
+                    line.setAttribute('y2', y2);
+                    svg.insertBefore(line, svg.firstChild.nextSibling);
+                }
+            }
+        }
+        
+        function getResourceIcon(type) {
+            const iconMap = {
+                'AWS::Lambda::Function': 'λ',
+                'AWS::ApiGatewayV2::Api': 'API',
+                'AWS::ApiGateway::RestApi': 'API',
+                'AWS::DynamoDB::Table': 'DB',
+                'AWS::S3::Bucket': 'S3',
+                'AWS::RDS::DBInstance': 'RDS',
+                'AWS::EC2::Instance': 'EC2',
+                'AWS::ECS::Service': 'ECS',
+                'AWS::ElasticLoadBalancingV2::LoadBalancer': 'ALB',
+                'AWS::Cognito::UserPool': '👤',
+                'AWS::SNS::Topic': '📢',
+                'AWS::SQS::Queue': '📬',
+                'AWS::IAM::Role': '🔐',
+            };
+            
+            return iconMap[type] || '📦';
+        }
+        
+        function getShortType(type) {
+            return type.replace('AWS::', '').replace('::', ' ');
+        }
+        
+        function truncateText(text, maxLength) {
+            return text.length > maxLength ? text.substring(0, maxLength - 3) + '...' : text;
+        }
+        
         function switchTabByName(tabName) {
             const tabs = ['architecture', 'cost', 'review', 'template'];
             const index = tabs.indexOf(tabName);
@@ -531,45 +853,9 @@
             document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Waiting for review...</div>';
             
             try {
-                // Step 1: Architecture
-                const archResult = await callMcpToolWs('generate_architecture_diagram', {
-                    template_body: `Requirements: ${prompt}`
-                });
+                // Step 1: Generate CloudFormation Template
+                document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 1/4: Generating CloudFormation template...</div>';
                 
-                if (archResult.success) {
-                    document.getElementById('architectureContent').innerHTML = `
-                        <div class="markdown-content">${marked.parse(archResult.diagram)}</div>
-                    `;
-                }
-                
-                switchTabByName('architecture');
-                
-                // Step 2: Cost
-                document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Step 2/4: Analyzing cost optimization...</div>';
-                const costResult = await callMcpToolWs('analyze_cost_optimization', {
-                    template_body: `Requirements: ${prompt}`
-                });
-                
-                if (costResult.success) {
-                    document.getElementById('costContent').innerHTML = `
-                        <div class="markdown-content">${marked.parse(costResult.analysis)}</div>
-                    `;
-                }
-                
-                // Step 3: Well-Architected
-                document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Step 3/4: Performing Well-Architected review...</div>';
-                const reviewResult = await callMcpToolWs('well_architected_review', {
-                    template_body: `Requirements: ${prompt}`
-                });
-                
-                if (reviewResult.success) {
-                    document.getElementById('reviewContent').innerHTML = `
-                        <div class="markdown-content">${marked.parse(reviewResult.review)}</div>
-                    `;
-                }
-                
-                // Step 4: Template
-                document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 4/4: Building CloudFormation template...</div>';
                 const templateResult = await callMcpToolWs('build_cfn_template', {
                     prompt: prompt,
                     format: 'yaml'
@@ -580,6 +866,73 @@
                 }
                 
                 currentTemplate = templateResult.template;
+                
+                // Step 2: Generate Architecture Diagram
+                document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 2/4: Creating professional architecture diagram...</div>';
+                
+                const archResult = await callMcpToolWs('generate_architecture_diagram', {
+                    template_body: currentTemplate
+                });
+                
+                if (archResult.success && archResult.image) {
+                    // Display the professional diagram image
+                    document.getElementById('diagramCanvas').innerHTML = `
+                        <image href="data:image/png;base64,${archResult.image}" 
+                               x="10" y="10" width="95%" height="95%" 
+                               preserveAspectRatio="xMidYMid meet"/>
+                    `;
+                    
+                    // Show success message in Resources tab
+                    document.getElementById('architectureContent').innerHTML = `
+                        <div class="success-banner">
+                            <h3>✅ Architecture Diagram Generated</h3>
+                            <p>Professional AWS architecture diagram created with ${archResult.resources_count} resources</p>
+                            <p style="margin-top: 0.5rem; font-size: 0.9rem;">Switch to the <strong>Canvas</strong> tab to view the visual diagram.</p>
+                        </div>
+                        <div class="markdown-content">
+                            <h2>CloudFormation Template</h2>
+                            <pre><code>${currentTemplate}</code></pre>
+                        </div>
+                    `;
+                } else {
+                    // Fallback if diagram generation fails
+                    document.getElementById('architectureContent').innerHTML = `
+                        <div class="error-banner">
+                            <h3>⚠️ Diagram Generation Failed</h3>
+                            <p>${archResult.error || 'Unknown error'}</p>
+                            <p style="margin-top: 0.5rem;">Template was generated successfully. View it in the Template tab.</p>
+                        </div>
+                    `;
+                }
+                
+                switchTabByName('architecture');
+                
+                // Step 3: Cost
+                document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Step 3/4: Analyzing cost optimization...</div>';
+                const costResult = await callMcpToolWs('analyze_cost_optimization', {
+                    template_body: currentTemplate
+                });
+                
+                if (costResult.success) {
+                    document.getElementById('costContent').innerHTML = `
+                        <div class="markdown-content">${marked.parse(costResult.analysis)}</div>
+                    `;
+                }
+                
+                // Step 4: Well-Architected
+                document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Step 4/4: Performing Well-Architected review...</div>';
+                const reviewResult = await callMcpToolWs('well_architected_review', {
+                    template_body: currentTemplate
+                });
+                
+                if (reviewResult.success) {
+                    document.getElementById('reviewContent').innerHTML = `
+                        <div class="markdown-content">${marked.parse(reviewResult.review)}</div>
+                    `;
+                }
+                
+                // Step 5: Display Template in Monaco Editor
+                document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Preparing template editor...</div>';
                 
                 // Create Monaco editor
                 document.getElementById('templateContent').innerHTML = `

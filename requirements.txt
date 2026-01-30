@@ -1,3 +1,5 @@
 mcp
 boto3
 pyyaml
+diagrams
+graphviz

@@ -4,6 +4,10 @@ import boto3
 import yaml
 import json
 import os
+import subprocess
+import tempfile
+import base64
+from pathlib import Path
 
 # CRITICAL: stateless_http=True is required for AgentCore
 mcp = FastMCP(host="0.0.0.0", stateless_http=True)
@@ -153,51 +157,168 @@ def provision_cfn_stack(stack_name: str, template_body: str, capabilities: list 
 @mcp.tool()
 def generate_architecture_diagram(template_body: str) -> dict:
     """
-    Generate a visual architecture diagram from CloudFormation template using Claude.
-    Returns a text-based architecture overview.
+    Generate a professional visual architecture diagram from CloudFormation template 
+    using AWS Diagram MCP Server (Python diagrams package with official AWS icons).
+    
+    Returns base64-encoded PNG image that can be displayed in the UI.
     """
     try:
-        bedrock = get_bedrock_client()
+        # Parse CloudFormation template to extract resources
+        resources = parse_cfn_resources(template_body)
         
-        system_prompt = """You are an AWS architecture expert. Analyze CloudFormation templates and create visual architecture diagrams.
-
-Create a clear, text-based architecture diagram showing:
-1. All AWS resources and their relationships
-2. Network flow and connectivity
-3. Security boundaries
-4. Data flow
-
-Use ASCII art or structured text format."""
-
-        user_message = f"""Analyze this CloudFormation template and create a visual architecture diagram:
-
-{template_body}
-
-Provide:
-1. ASCII architecture diagram
-2. Resource list with descriptions
-3. Network topology
-4. Security groups and access patterns"""
-
-        response = bedrock.invoke_model(
-            modelId='us.anthropic.claude-3-5-sonnet-20241022-v2:0',
-            body=json.dumps({
-                'anthropic_version': 'bedrock-2023-05-31',
-                'max_tokens': 4096,
-                'system': system_prompt,
-                'messages': [{'role': 'user', 'content': user_message}]
-            })
-        )
+        if not resources:
+            return {
+                'success': False,
+                'error': 'No resources found in template'
+            }
         
-        response_body = json.loads(response['body'].read())
-        diagram = response_body['content'][0]['text']
+        # Generate Python code for diagrams package
+        diagram_code = generate_diagram_code(resources, template_body)
         
-        return {
-            'success': True,
-            'diagram': diagram
-        }
+        # Execute diagram generation
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Write Python code to temp file
+            code_file = Path(tmpdir) / "diagram.py"
+            code_file.write_text(diagram_code)
+            
+            # Execute the diagram code
+            result = subprocess.run(
+                ['python3', str(code_file)],
+                cwd=tmpdir,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode != 0:
+                return {
+                    'success': False,
+                    'error': f'Diagram generation failed: {result.stderr}'
+                }
+            
+            # Find generated PNG file
+            png_files = list(Path(tmpdir).glob('*.png'))
+            if not png_files:
+                return {
+                    'success': False,
+                    'error': 'No diagram image generated'
+                }
+            
+            # Read and encode image as base64
+            with open(png_files[0], 'rb') as f:
+                image_data = base64.b64encode(f.read()).decode('utf-8')
+            
+            return {
+                'success': True,
+                'image': image_data,
+                'format': 'png',
+                'encoding': 'base64',
+                'resources_count': len(resources)
+            }
+            
+    except subprocess.TimeoutExpired:
+        return {'success': False, 'error': 'Diagram generation timed out'}
     except Exception as e:
         return {'success': False, 'error': str(e)}
+
+
+def parse_cfn_resources(template_body: str) -> list:
+    """Parse CloudFormation template to extract resources"""
+    resources = []
+    
+    try:
+        # Try parsing as YAML first
+        try:
+            template = yaml.safe_load(template_body)
+        except:
+            # Try JSON
+            template = json.loads(template_body)
+        
+        if 'Resources' in template:
+            for name, resource in template['Resources'].items():
+                resources.append({
+                    'name': name,
+                    'type': resource.get('Type', 'Unknown'),
+                    'properties': resource.get('Properties', {})
+                })
+    except Exception as e:
+        print(f"Error parsing template: {e}")
+    
+    return resources
+
+
+def generate_diagram_code(resources: list, template_body: str) -> str:
+    """Generate Python code using diagrams package for AWS architecture"""
+    
+    # Map CFN resource types to diagrams package classes
+    resource_map = {
+        'AWS::Lambda::Function': ('compute', 'Lambda'),
+        'AWS::ApiGatewayV2::Api': ('network', 'APIGateway'),
+        'AWS::ApiGateway::RestApi': ('network', 'APIGateway'),
+        'AWS::DynamoDB::Table': ('database', 'Dynamodb'),
+        'AWS::S3::Bucket': ('storage', 'S3'),
+        'AWS::RDS::DBInstance': ('database', 'RDS'),
+        'AWS::EC2::Instance': ('compute', 'EC2'),
+        'AWS::ECS::Service': ('compute', 'ECS'),
+        'AWS::ECS::TaskDefinition': ('compute', 'ECS'),
+        'AWS::ElasticLoadBalancingV2::LoadBalancer': ('network', 'ELB'),
+        'AWS::Cognito::UserPool': ('security', 'Cognito'),
+        'AWS::SNS::Topic': ('integration', 'SNS'),
+        'AWS::SQS::Queue': ('integration', 'SQS'),
+        'AWS::IAM::Role': ('security', 'IAM'),
+        'AWS::CloudFront::Distribution': ('network', 'CloudFront'),
+        'AWS::Route53::RecordSet': ('network', 'Route53'),
+        'AWS::ElastiCache::CacheCluster': ('database', 'ElastiCache'),
+        'AWS::StepFunctions::StateMachine': ('integration', 'StepFunctions'),
+        'AWS::EventBridge::Rule': ('integration', 'Eventbridge'),
+        'AWS::Kinesis::Stream': ('analytics', 'KinesisDataStreams'),
+    }
+    
+    # Generate imports
+    imports = set()
+    for resource in resources:
+        res_type = resource['type']
+        if res_type in resource_map:
+            category, class_name = resource_map[res_type]
+            imports.add(f"from diagrams.aws.{category} import {class_name}")
+    
+    # Build diagram code
+    code = """from diagrams import Diagram, Cluster, Edge
+from diagrams.aws.compute import Lambda, EC2, ECS
+from diagrams.aws.network import APIGateway, ELB, CloudFront, Route53
+from diagrams.aws.database import Dynamodb, RDS, ElastiCache
+from diagrams.aws.storage import S3
+from diagrams.aws.security import Cognito, IAM
+from diagrams.aws.integration import SNS, SQS, StepFunctions, Eventbridge
+from diagrams.aws.analytics import KinesisDataStreams
+
+with Diagram("AWS Architecture", show=False, direction="LR"):
+"""
+    
+    # Add resources
+    for i, resource in enumerate(resources):
+        res_type = resource['type']
+        res_name = resource['name']
+        
+        if res_type in resource_map:
+            category, class_name = resource_map[res_type]
+            # Truncate long names
+            display_name = res_name[:20] + '...' if len(res_name) > 20 else res_name
+            code += f'    {res_name.lower().replace("-", "_")} = {class_name}("{display_name}")\n'
+        else:
+            # Use generic compute for unknown types
+            display_name = res_name[:20] + '...' if len(res_name) > 20 else res_name
+            code += f'    {res_name.lower().replace("-", "_")} = EC2("{display_name}")\n'
+    
+    # Add simple connections (chain resources)
+    if len(resources) > 1:
+        code += "\n    # Connections\n"
+        for i in range(len(resources) - 1):
+            curr = resources[i]['name'].lower().replace("-", "_")
+            next_res = resources[i + 1]['name'].lower().replace("-", "_")
+            code += f"    {curr} >> {next_res}\n"
+    
+    return code
 
 
 @mcp.tool()

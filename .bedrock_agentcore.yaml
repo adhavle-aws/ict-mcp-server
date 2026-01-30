@@ -5,19 +5,19 @@ agents:
     language: python
     node_version: '20'
     entrypoint: /Users/adhavle/Documents/SDFC Industries/AWS-provisioning-mcp/cfn-mcp-server/mcp_server.py
-    deployment_type: direct_code_deploy
-    runtime_type: PYTHON_3_13
+    deployment_type: container
+    runtime_type: null
     platform: linux/arm64
-    container_runtime: null
+    container_runtime: docker
     source_path: /Users/adhavle/Documents/SDFC Industries/AWS-provisioning-mcp/cfn-mcp-server
     aws:
       execution_role: arn:aws:iam::905767016260:role/AmazonBedrockAgentCoreSDKRuntime-us-east-1-f6e3659767
       execution_role_auto_create: false
       account: '905767016260'
       region: us-east-1
-      ecr_repository: null
+      ecr_repository: 905767016260.dkr.ecr.us-east-1.amazonaws.com/bedrock-agentcore-mcp_server
       ecr_auto_create: false
-      s3_path: s3://bedrock-agentcore-codebuild-sources-905767016260-us-east-1
+      s3_path: null
       s3_auto_create: false
       network_configuration:
         network_mode: PUBLIC
@@ -30,13 +30,13 @@ agents:
         idle_runtime_session_timeout: null
         max_lifetime: null
     bedrock_agentcore:
-      agent_id: mcp_server-CxkrO53RPH
-      agent_arn: arn:aws:bedrock-agentcore:us-east-1:905767016260:runtime/mcp_server-CxkrO53RPH
-      agent_session_id: null
+      agent_id: mcp_server-VpWbdyCLTH
+      agent_arn: arn:aws:bedrock-agentcore:us-east-1:905767016260:runtime/mcp_server-VpWbdyCLTH
+      agent_session_id: 3593d85f-4013-4869-b5ba-e2367fb1eb2b
     codebuild:
-      project_name: null
-      execution_role: null
-      source_bucket: null
+      project_name: bedrock-agentcore-mcp_server-builder
+      execution_role: arn:aws:iam::905767016260:role/AmazonBedrockAgentCoreSDKCodeBuild-us-east-1-f6e3659767
+      source_bucket: bedrock-agentcore-codebuild-sources-905767016260-us-east-1
     memory:
       mode: STM_ONLY
       memory_id: mcp_server_mem-wqe2IV95o9

@@ -2,7 +2,16 @@
 
 ## Overview
 
-An intelligent infrastructure-as-code generator that uses Claude AI to transform natural language descriptions into production-ready CloudFormation templates, with comprehensive architecture analysis, cost optimization, and Well-Architected Framework reviews.
+An intelligent infrastructure-as-code generator that uses Claude AI to transform natural language descriptions into production-ready CloudFormation templates, with **professional architecture diagram generation**, comprehensive architecture analysis, cost optimization, and Well-Architected Framework reviews.
+
+### Key Features
+
+- 🏗️ **Natural Language to CloudFormation**: Generate templates from plain English
+- 📊 **Professional Architecture Diagrams**: Auto-generate visual diagrams with AWS official icons
+- ✅ **Template Validation**: Validate against AWS CloudFormation API
+- 💰 **Cost Optimization**: AI-powered cost analysis
+- 🏛️ **Well-Architected Review**: Automated framework review
+- 🚀 **Stack Provisioning**: Deploy directly to AWS
 
 ## Architecture
 

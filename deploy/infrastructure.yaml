@@ -5,7 +5,7 @@ Parameters:
   AgentArn:
     Type: String
     Description: AgentCore Runtime ARN
-    Default: arn:aws:bedrock-agentcore:us-east-1:905767016260:runtime/mcp_server-CxkrO53RPH
+    Default: arn:aws:bedrock-agentcore:us-east-1:905767016260:runtime/mcp_server-VpWbdyCLTH
 
 Resources:
   # Lambda Execution Role

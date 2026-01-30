@@ -71,7 +71,7 @@ def call_mcp_tool(tool_name, arguments):
         headers=dict(aws_request.headers)
     )
     
-    with urllib.request.urlopen(req, timeout=120) as response:
+    with urllib.request.urlopen(req, timeout=300) as response:
         response_data = response.read().decode('utf-8')
         print(f"Response data (first 500 chars): {response_data[:500]}")
         

@@ -54,16 +54,12 @@ Output format: {format.upper()}
 
 Return ONLY the CloudFormation template, nothing else."""
 
-        # Call Claude via Bedrock with extended thinking
+        # Call Claude via Bedrock
         response = bedrock.invoke_model(
-            modelId='us.anthropic.claude-opus-4-20250514-v1:0',
+            modelId='us.anthropic.claude-3-5-sonnet-20241022-v2:0',
             body=json.dumps({
                 'anthropic_version': 'bedrock-2023-05-31',
                 'max_tokens': 4096,
-                'thinking': {
-                    'type': 'enabled',
-                    'budget_tokens': 2000
-                },
                 'system': system_prompt,
                 'messages': [
                     {
@@ -76,16 +72,7 @@ Return ONLY the CloudFormation template, nothing else."""
         
         # Parse response
         response_body = json.loads(response['body'].read())
-        
-        # Extract thinking and template
-        thinking = ''
-        template_str = ''
-        
-        for content in response_body['content']:
-            if content['type'] == 'thinking':
-                thinking = content['thinking']
-            elif content['type'] == 'text':
-                template_str = content['text'].strip()
+        template_str = response_body['content'][0]['text'].strip()
         
         # Clean up markdown code blocks if present
         if template_str.startswith('```'):
@@ -96,8 +83,7 @@ Return ONLY the CloudFormation template, nothing else."""
             'success': True,
             'template': template_str,
             'format': format,
-            'prompt': prompt,
-            'thinking': thinking
+            'prompt': prompt
         }
     except Exception as e:
         return {

@@ -46,6 +46,10 @@ Resources:
                 Action:
                   - cloudformation:DescribeStacks
                 Resource: '*'
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:cfn-builder-websocket'
 
   # Lambda Function
   WebSocketLambda:
@@ -73,7 +77,7 @@ Resources:
           AGENT_ARN = os.environ['AGENT_ARN']
           REGION = os.environ.get('REGION', 'us-east-1')
           
-          # API Gateway Management API client (for sending messages)
+          lambda_client = boto3.client('lambda')
           apigw = None
           
           def get_apigw_client(event):
@@ -92,8 +96,10 @@ Resources:
                       ConnectionId=connection_id,
                       Data=json.dumps(message)
                   )
+                  return True
               except Exception as e:
                   print(f"Error sending message: {e}")
+                  return False
           
           def call_mcp_tool(tool_name, arguments):
               """Call MCP server via AgentCore"""
@@ -131,10 +137,9 @@ Resources:
                   headers=dict(aws_request.headers)
               )
               
-              with urllib.request.urlopen(req, timeout=120) as response:
+              with urllib.request.urlopen(req, timeout=300) as response:
                   response_data = response.read().decode('utf-8')
                   print(f"Response data length: {len(response_data)}")
-                  print(f"Response data (first 500 chars): {response_data[:500]}")
                   
                   if not response_data.strip():
                       return {'error': 'Empty response from AgentCore'}
@@ -154,6 +159,60 @@ Resources:
           def lambda_handler(event, context):
               route_key = event.get('requestContext', {}).get('routeKey')
               connection_id = event.get('requestContext', {}).get('connectionId')
+              
+              # Check if this is an async invocation (processing MCP call)
+              if 'async_processing' in event:
+                  async_event = event['async_processing']
+                  tool = async_event['tool']
+                  arguments = async_event['arguments']
+                  request_id = async_event['requestId']
+                  connection_id = async_event['connectionId']
+                  original_event = async_event['event']
+                  
+                  print(f"Async processing: {tool}")
+                  
+                  try:
+                      # Send progress
+                      send_message(connection_id, {
+                          'type': 'progress',
+                          'requestId': request_id,
+                          'progress': 50,
+                          'message': f'Processing {tool}...'
+                      }, original_event)
+                      
+                      # Call MCP tool
+                      result = call_mcp_tool(tool, arguments)
+                      
+                      # Parse and send result
+                      if result.get('result', {}).get('content'):
+                          content_text = result['result']['content'][0]['text']
+                          data = json.loads(content_text)
+                          
+                          send_message(connection_id, {
+                              'type': 'response',
+                              'requestId': request_id,
+                              'tool': tool,
+                              'data': data,
+                              'status': 'completed'
+                          }, original_event)
+                      else:
+                          send_message(connection_id, {
+                              'type': 'error',
+                              'requestId': request_id,
+                              'error': result.get('error', 'No result from MCP server')
+                          }, original_event)
+                  
+                  except Exception as e:
+                      print(f"Error in async processing: {e}")
+                      import traceback
+                      traceback.print_exc()
+                      send_message(connection_id, {
+                          'type': 'error',
+                          'requestId': request_id,
+                          'error': str(e)
+                      }, original_event)
+                  
+                  return {'statusCode': 200}
               
               print(f"Route: {route_key}, Connection: {connection_id}")
               
@@ -189,8 +248,23 @@ Resources:
                           'message': f'Calling {tool}...'
                       }, event)
                       
-                      # Call MCP tool
-                      result = call_mcp_tool(tool, arguments)
+                      # Invoke self asynchronously for long-running operations
+                      lambda_client.invoke(
+                          FunctionName=context.function_name,
+                          InvocationType='Event',
+                          Payload=json.dumps({
+                              'async_processing': {
+                                  'tool': tool,
+                                  'arguments': arguments,
+                                  'requestId': request_id,
+                                  'connectionId': connection_id,
+                                  'event': event
+                              }
+                          })
+                      )
+                      
+                      # Return immediately
+                      return {'statusCode': 200}
                       
                       # Parse result
                       if result.get('result', {}).get('content'):

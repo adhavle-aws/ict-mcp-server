@@ -29,38 +29,99 @@ def get_bedrock_client():
 @mcp.tool()
 def generate_architecture_overview(prompt: str) -> dict:
     """
-    Generate a text-based architecture overview from requirements.
-    Returns markdown summary of what will be built and how.
+    Generate a comprehensive architecture overview from requirements.
+    Returns markdown with reasoning, component details, and ASCII diagram with AWS icons.
     """
     try:
         bedrock = get_bedrock_client()
         
-        system_prompt = """You are an AWS Solutions Architect. Analyze requirements and create clear architecture overviews.
+        system_prompt = """You are a Senior AWS Solutions Architect. Analyze requirements and create comprehensive architecture overviews with clear reasoning for every decision.
 
-Provide:
-1. What we're building (high-level summary)
-2. Key components and their purpose
-3. How components interact
-4. Architecture patterns used
-5. AWS services selected and why
+Your response must include:
+1. Executive Summary (2-3 sentences)
+2. Architecture Diagram (ASCII art with AWS service icons/emojis)
+3. Component Breakdown (each service with purpose and rationale)
+4. Design Decisions (why you chose each service/pattern)
+5. Data Flow (how requests move through the system)
+6. Security Considerations (specific to this architecture)
 
-Use clear, concise markdown format."""
+Use emojis/icons for AWS services:
+- 🌐 ALB/CloudFront
+- 🖥️ EC2
+- 📦 S3
+- 🗄️ RDS/DynamoDB
+- λ Lambda
+- 🔐 IAM/Security Groups
+- 🌍 VPC
+- 🔄 Auto Scaling
 
-        user_message = f"""Analyze these requirements and create an architecture overview:
+Be specific and provide reasoning for every architectural choice."""
 
+        user_message = f"""Analyze these requirements and create a comprehensive architecture overview:
+
+REQUIREMENTS:
 {prompt}
 
-Provide a clear summary of:
-- What we're building
-- Key AWS services and components
-- How they work together
-- Architecture patterns and best practices"""
+Provide:
+
+## Executive Summary
+Brief overview of what we're building and why
+
+## Architecture Diagram
+Create an ASCII diagram using AWS service icons/emojis showing:
+- All tiers/layers
+- AWS services
+- Data flow with arrows
+- Network boundaries
+
+Example format:
+```
+Internet
+   ↓
+🌐 Application Load Balancer
+   ↓
+🖥️ Web Tier (EC2 Auto Scaling)
+   ↓
+🖥️ App Tier (EC2 Auto Scaling)
+   ↓
+🗄️ Database Tier (RDS Multi-AZ)
+```
+
+## Component Breakdown
+For each AWS service:
+- **Service Name** (icon)
+- Purpose: What it does
+- Configuration: Key settings
+- Rationale: WHY we chose this service/configuration
+
+## Design Decisions
+Explain the reasoning behind:
+- Architecture pattern chosen (3-tier, serverless, etc.)
+- Service selections (why EC2 vs Lambda, why RDS vs DynamoDB)
+- Network design (public/private subnets, Multi-AZ)
+- Scaling strategy
+- Security approach
+
+## Data Flow
+Step-by-step request flow:
+1. User request arrives at...
+2. ALB routes to...
+3. Web tier processes...
+etc.
+
+## Security Architecture
+- Network isolation strategy
+- Access control approach
+- Encryption decisions
+- Compliance considerations
+
+Be specific and provide concrete reasoning for every choice."""
 
         response = bedrock.invoke_model(
             modelId='us.anthropic.claude-3-5-sonnet-20241022-v2:0',
             body=json.dumps({
                 'anthropic_version': 'bedrock-2023-05-31',
-                'max_tokens': 2048,
+                'max_tokens': 3072,
                 'system': system_prompt,
                 'messages': [{'role': 'user', 'content': user_message}]
             })

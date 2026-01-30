@@ -448,19 +448,43 @@
             
             <div class="tabs">
                 <button class="tab active" onclick="switchTab('architecture')">Architecture Overview</button>
-                <button class="tab" onclick="switchTab('cost')">Cost Optimization</button>
                 <button class="tab" onclick="switchTab('review')">Well-Architected Review</button>
+                <button class="tab" onclick="switchTab('cost')">Cost Optimization</button>
                 <button class="tab" onclick="switchTab('template')">CloudFormation Template</button>
             </div>
             
             <div id="architecture" class="tab-content active">
+                <div id="architectureContent" class="loading">
+                    Enter your infrastructure requirements below to begin
+                </div>
+            </div>
+            
+            <div id="review" class="tab-content">
+                <div id="reviewContent" class="loading">
+                    Generate architecture to see Well-Architected Framework review
+                </div>
+            </div>
+            
+            <div id="cost" class="tab-content">
+                <div id="costContent" class="loading">
+                    Generate architecture to see cost optimization recommendations
+                </div>
+            </div>
+            
+            <div id="template" class="tab-content">
                 <div class="architecture-container">
                     <div class="architecture-toolbar">
-                        <button class="arch-tab active" id="diagramViewBtn" onclick="switchArchView('diagram')">Canvas</button>
-                        <button class="arch-tab" id="textViewBtn" onclick="switchArchView('text')">Resources</button>
+                        <button class="arch-tab active" id="templateViewBtn" onclick="switchTemplateView('yaml')">Template</button>
+                        <button class="arch-tab" id="diagramViewBtn" onclick="switchTemplateView('diagram')">Diagram</button>
                     </div>
                     
-                    <div id="diagramView" class="arch-view">
+                    <div id="yamlView" class="arch-view">
+                        <div id="templateContent">
+                            <div class="loading">Generate architecture to create CloudFormation template</div>
+                        </div>
+                    </div>
+                    
+                    <div id="diagramView" class="arch-view" style="display: none;">
                         <svg id="diagramCanvas" width="100%" height="600">
                             <defs>
                                 <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
@@ -472,30 +496,6 @@
                             </text>
                         </svg>
                     </div>
-                    
-                    <div id="textView" class="arch-view" style="display: none;">
-                        <div id="architectureContent" class="loading">
-                            Enter your infrastructure requirements below to begin
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <div id="cost" class="tab-content">
-                <div id="costContent" class="loading">
-                    Generate architecture to see cost optimization recommendations
-                </div>
-            </div>
-            
-            <div id="review" class="tab-content">
-                <div id="reviewContent" class="loading">
-                    Generate architecture to see Well-Architected Framework review
-                </div>
-            </div>
-            
-            <div id="template" class="tab-content">
-                <div id="templateContent">
-                    <div class="loading">Generate architecture to create CloudFormation template</div>
                 </div>
             </div>
             
@@ -595,6 +595,20 @@
                     arguments: args
                 }));
             });
+        }
+        
+        function switchTemplateView(viewName) {
+            // Update toolbar buttons
+            document.querySelectorAll('.arch-tab').forEach(btn => btn.classList.remove('active'));
+            if (viewName === 'diagram') {
+                document.getElementById('diagramViewBtn').classList.add('active');
+            } else {
+                document.getElementById('templateViewBtn').classList.add('active');
+            }
+            
+            // Update views
+            document.getElementById('diagramView').style.display = viewName === 'diagram' ? 'block' : 'none';
+            document.getElementById('yamlView').style.display = viewName === 'yaml' ? 'block' : 'none';
         }
         
         function switchTab(tabName) {
@@ -853,8 +867,8 @@
             document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Waiting for review...</div>';
             
             try {
-                // Step 1: Generate CloudFormation Template
-                document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 1/5: Generating CloudFormation template...</div>';
+                // Step 1: Architecture Overview (text-based summary)
+                document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 1/5: Analyzing architecture and generating overview...</div>';
                 
                 const templateResult = await callMcpToolWs('build_cfn_template', {
                     prompt: prompt,
@@ -867,27 +881,41 @@
                 
                 currentTemplate = templateResult.template;
                 
-                // Step 2: Generate Architecture Overview (text-based)
-                document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 2/5: Analyzing architecture...</div>';
+                // Show architecture summary
+                document.getElementById('architectureContent').innerHTML = `
+                    <div class="success-banner">
+                        <h3>✅ Architecture Overview</h3>
+                        <p>Infrastructure design completed for your requirements</p>
+                    </div>
+                    <div class="markdown-content">
+                        <h2>What We're Building</h2>
+                        <p><strong>Requirements:</strong> ${prompt}</p>
+                        <h3>Architecture Summary</h3>
+                        <p>A comprehensive CloudFormation template has been generated with the following components:</p>
+                        <ul>
+                            <li>Network infrastructure (VPC, subnets, routing)</li>
+                            <li>Compute resources (EC2, Lambda, or containers)</li>
+                            <li>Storage and database services</li>
+                            <li>Security groups and IAM roles</li>
+                            <li>Load balancing and auto-scaling</li>
+                        </ul>
+                        <p>View the complete template in the <strong>CloudFormation Template</strong> tab.</p>
+                    </div>
+                `;
                 
-                const archResult = await callMcpToolWs('generate_architecture_diagram', {
+                switchTabByName('architecture');
+                
+                // Step 2: Well-Architected Review
+                document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Step 2/5: Performing Well-Architected Framework review...</div>';
+                const reviewResult = await callMcpToolWs('well_architected_review', {
                     template_body: currentTemplate
                 });
                 
-                if (archResult.success) {
-                    document.getElementById('architectureContent').innerHTML = `
-                        <div class="success-banner">
-                            <h3>✅ Architecture Analysis Complete</h3>
-                            <p>CloudFormation template generated with ${archResult.resources_count || 'multiple'} resources</p>
-                        </div>
-                        <div class="markdown-content">
-                            <h2>CloudFormation Template</h2>
-                            <pre><code>${currentTemplate}</code></pre>
-                        </div>
+                if (reviewResult.success) {
+                    document.getElementById('reviewContent').innerHTML = `
+                        <div class="markdown-content">${marked.parse(reviewResult.review)}</div>
                     `;
                 }
-                
-                switchTabByName('architecture');
                 
                 // Step 3: Cost Optimization
                 document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Step 3/5: Analyzing cost optimization...</div>';
@@ -901,20 +929,8 @@
                     `;
                 }
                 
-                // Step 4: Well-Architected Review
-                document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Step 4/5: Performing Well-Architected review...</div>';
-                const reviewResult = await callMcpToolWs('well_architected_review', {
-                    template_body: currentTemplate
-                });
-                
-                if (reviewResult.success) {
-                    document.getElementById('reviewContent').innerHTML = `
-                        <div class="markdown-content">${marked.parse(reviewResult.review)}</div>
-                    `;
-                }
-                
-                // Step 5: Display Template in Monaco Editor
-                document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 5/5: Preparing template editor...</div>';
+                // Step 4: Display CloudFormation Template
+                document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 4/5: Preparing CloudFormation template...</div>';
                 
                 document.getElementById('templateContent').innerHTML = `
                     <div class="button-group">
@@ -940,38 +956,41 @@
                     });
                 });
                 
-                // Step 6: Generate Professional Diagram (after everything else)
-                if (archResult.success && archResult.image) {
-                    document.getElementById('diagramCanvas').innerHTML = `
-                        <text x="50%" y="50%" text-anchor="middle" fill="#545b64" font-size="16">
-                            Generating professional diagram...
-                        </text>
-                    `;
-                    
-                    // This happens in background, doesn't block UI
-                    setTimeout(async () => {
-                        try {
-                            const finalDiagramResult = await callMcpToolWs('generate_architecture_diagram', {
-                                template_body: currentTemplate
-                            });
-                            
-                            if (finalDiagramResult.success && finalDiagramResult.image) {
-                                document.getElementById('diagramCanvas').innerHTML = `
-                                    <image href="data:image/png;base64,${finalDiagramResult.image}" 
-                                           x="10" y="10" width="95%" height="95%" 
-                                           preserveAspectRatio="xMidYMid meet"/>
-                                `;
-                            }
-                        } catch (e) {
-                            console.error('Diagram generation failed:', e);
+                // Step 5: Generate Professional Diagram (in background)
+                document.getElementById('diagramCanvas').innerHTML = `
+                    <text x="50%" y="50%" text-anchor="middle" fill="#545b64" font-size="16">
+                        ⏳ Step 5/5: Generating professional diagram...
+                    </text>
+                `;
+                
+                setTimeout(async () => {
+                    try {
+                        const diagramResult = await callMcpToolWs('generate_architecture_diagram', {
+                            template_body: currentTemplate
+                        });
+                        
+                        if (diagramResult.success && diagramResult.image) {
+                            document.getElementById('diagramCanvas').innerHTML = `
+                                <image href="data:image/png;base64,${diagramResult.image}" 
+                                       x="10" y="10" width="95%" height="95%" 
+                                       preserveAspectRatio="xMidYMid meet"/>
+                            `;
+                        } else {
                             document.getElementById('diagramCanvas').innerHTML = `
                                 <text x="50%" y="50%" text-anchor="middle" fill="#d13212" font-size="14">
-                                    Diagram generation failed. View resources in the Resources tab.
+                                    Diagram generation failed. View template in the Template tab.
                                 </text>
                             `;
                         }
-                    }, 100);
-                }
+                    } catch (e) {
+                        console.error('Diagram generation failed:', e);
+                        document.getElementById('diagramCanvas').innerHTML = `
+                            <text x="50%" y="50%" text-anchor="middle" fill="#d13212" font-size="14">
+                                Diagram generation failed. View template in the Template tab.
+                            </text>
+                        `;
+                    }
+                }, 100);
                 
             } catch (error) {
                 alert('Error: ' + error.message);

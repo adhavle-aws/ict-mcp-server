@@ -400,14 +400,9 @@ def analyze_cost_optimization(prompt: str = None, template_body: str = None) -> 
         
         bedrock = get_bedrock_client()
         
-        system_prompt = """You are an AWS cost optimization expert. Analyze requirements or templates and provide cost-saving recommendations.
+        system_prompt = """You are an AWS cost optimization expert. Analyze architectures and provide specific, actionable cost-saving recommendations that directly reference the components and findings from the Well-Architected Review.
 
-Focus on:
-1. Right-sizing resources
-2. Reserved instances vs on-demand
-3. Storage optimization
-4. Network cost reduction
-5. Serverless alternatives"""
+CRITICAL: Build upon the Well-Architected Review findings. Reference specific recommendations and risks identified. Provide concrete cost estimates and savings calculations."""
 
         if template_body:
             user_message = f"""Analyze this CloudFormation template for cost optimization:
@@ -415,20 +410,45 @@ Focus on:
 {template_body}
 
 Provide:
-1. Current cost drivers
-2. Optimization recommendations
-3. Estimated savings
-4. Implementation priority"""
-        elif prompt:
-            user_message = f"""Analyze these requirements for cost optimization:
+1. Cost Analysis: Estimate monthly costs for SPECIFIC resources in the template
+2. Cost Drivers: Identify the most expensive components by name
+3. Optimization Recommendations: Reference specific resources and provide alternatives
+4. Estimated Savings: Provide dollar amounts or percentages
+5. Implementation Priority: High/Medium/Low with justification
 
+Be specific - reference actual resource names and provide cost estimates."""
+        elif prompt:
+            user_message = f"""Analyze cost optimization based on this Well-Architected Review:
+
+WELL-ARCHITECTED REVIEW FINDINGS:
 {prompt}
 
-Provide:
-1. Potential cost drivers
-2. Cost-effective architecture recommendations
-3. Estimated costs
-4. Cost optimization strategies"""
+Based on the architecture and findings above, provide:
+
+1. Cost Analysis:
+   - Estimated monthly costs for the components mentioned (ALB, EC2, RDS, NAT Gateway, etc.)
+   - Break down by service
+   - Consider the specific configurations mentioned (Multi-AZ, Auto Scaling, etc.)
+
+2. Cost Drivers:
+   - Identify the 3 most expensive components
+   - Explain why they're costly in THIS specific architecture
+
+3. Optimization Recommendations:
+   - Reference the specific Well-Architected findings above
+   - Provide alternatives for expensive components
+   - Consider the trade-offs mentioned in the review (reliability vs cost)
+
+4. Estimated Savings:
+   - Provide specific dollar amounts or percentages
+   - Show before/after cost comparison
+
+5. Implementation Roadmap:
+   - Quick wins (< 1 week)
+   - Medium-term optimizations (1-4 weeks)
+   - Long-term strategies (1-3 months)
+
+IMPORTANT: Reference the specific architecture components and Well-Architected findings. Don't provide generic cost advice."""
 
         response = bedrock.invoke_model(
             modelId='us.anthropic.claude-3-5-sonnet-20241022-v2:0',
@@ -462,16 +482,9 @@ def well_architected_review(prompt: str = None, template_body: str = None) -> di
         
         bedrock = get_bedrock_client()
         
-        system_prompt = """You are an AWS Well-Architected Framework expert. Review requirements or templates against the 6 pillars:
+        system_prompt = """You are an AWS Well-Architected Framework expert. Review architectures against the 6 pillars and provide specific, actionable recommendations that directly reference the architecture being reviewed.
 
-1. Operational Excellence
-2. Security
-3. Reliability
-4. Performance Efficiency
-5. Cost Optimization
-6. Sustainability
-
-Provide specific, actionable recommendations."""
+CRITICAL: Your review must be specific to the architecture provided, not generic best practices. Reference specific components, services, and design decisions mentioned in the architecture."""
 
         if template_body:
             user_message = f"""Review this CloudFormation template against AWS Well-Architected Framework:
@@ -479,20 +492,27 @@ Provide specific, actionable recommendations."""
 {template_body}
 
 For each pillar, provide:
-1. Current state assessment
-2. Risks identified
-3. Recommendations
-4. Priority level (High/Medium/Low)"""
-        elif prompt:
-            user_message = f"""Review these requirements against AWS Well-Architected Framework:
+1. Assessment of the SPECIFIC resources and configurations in this template
+2. Risks identified in THIS architecture
+3. Recommendations that reference SPECIFIC resources by name
+4. Priority level (High/Medium/Low)
 
+Be specific - reference actual resource names and configurations from the template."""
+        elif prompt:
+            user_message = f"""Review this architecture against AWS Well-Architected Framework:
+
+ARCHITECTURE TO REVIEW:
 {prompt}
 
-For each pillar, provide:
-1. Architecture recommendations
-2. Potential risks
-3. Best practices to follow
-4. Priority level (High/Medium/Low)"""
+For each of the 6 pillars (Operational Excellence, Security, Reliability, Performance Efficiency, Cost Optimization, Sustainability), provide:
+
+1. Assessment: Analyze the SPECIFIC components mentioned (ALB, EC2, RDS, etc.) - not generic advice
+2. Strengths: What this architecture does well
+3. Risks: Specific risks based on the components and design described
+4. Recommendations: Actionable improvements that reference the actual services mentioned
+5. Priority: High/Medium/Low
+
+IMPORTANT: Reference the specific services, tiers, and components mentioned in the architecture. Don't provide generic AWS advice - make it specific to THIS 3-tier application design."""
 
         response = bedrock.invoke_model(
             modelId='us.anthropic.claude-3-5-sonnet-20241022-v2:0',

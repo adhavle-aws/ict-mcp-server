@@ -283,6 +283,9 @@ def parse_cfn_resources(template_body: str) -> list:
     resources = []
     
     try:
+        print(f"Template type: {type(template_body)}")
+        print(f"Template first 200 chars: {repr(template_body[:200])}")
+        
         # Try parsing as YAML first
         try:
             template = yaml.safe_load(template_body)

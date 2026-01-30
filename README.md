@@ -13,25 +13,25 @@ An intelligent infrastructure-as-code generator that uses Claude AI to transform
 │  • Natural language input                                        │
 │  • 4 tabs: Architecture, Cost, Template, Review                 │
 └────────────────────────┬────────────────────────────────────────┘
-                         │ HTTPS
+                         │ WebSocket (WSS)
                          │
 ┌────────────────────────▼────────────────────────────────────────┐
-│                    API Gateway (HTTP API)                        │
-│  • Endpoint: tuzwz6hzq7.execute-api.us-east-1.amazonaws.com    │
-│  • CORS enabled                                                  │
-│  • Routes: POST /prod/api/mcp                                   │
+│              API Gateway (WebSocket API)                         │
+│  • Endpoint: 197c9q4u8i.execute-api.us-east-1.amazonaws.com    │
+│  • Protocol: WebSocket                                          │
+│  • Routes: $connect, $default, $disconnect                      │
+│  • No timeout limits                                            │
 └────────────────────────┬────────────────────────────────────────┘
                          │ Invokes
                          │
 ┌────────────────────────▼────────────────────────────────────────┐
-│              Lambda Function (Backend Proxy)                     │
-│  • Name: cfn-builder-backend                                    │
+│              Lambda Function (WebSocket Handler)                 │
+│  • Name: cfn-builder-websocket                                  │
 │  • Runtime: Python 3.11                                         │
 │  • Timeout: 600 seconds (10 minutes)                            │
 │  • Memory: 512 MB                                               │
-│  • Framework: FastAPI + Mangum                                  │
 │  • Security: NOT publicly accessible                            │
-│  • Function: AWS SigV4 request signing                          │
+│  • Function: AWS SigV4 request signing + message routing        │
 └────────────────────────┬────────────────────────────────────────┘
                          │ HTTPS + SigV4
                          │
@@ -160,21 +160,21 @@ agents:
 - Authentication: AWS IAM (SigV4)
 - Timeout: 600 seconds (for long Claude operations)
 
-### Backend Proxy Deployment (Lambda + API Gateway)
+### Backend Proxy Deployment (Lambda + WebSocket API)
 
-**Infrastructure** (`deploy/infrastructure.yaml`):
-- Lambda function with FastAPI + Mangum
-- API Gateway HTTP API
+**Infrastructure** (`deploy/websocket-infrastructure.yaml`):
+- Lambda function with inline Python code
+- API Gateway WebSocket API
 - IAM roles with least privilege
-- CORS configuration
+- No DynamoDB (stateless for demo)
 
 **Lambda Function**:
-- Name: `cfn-builder-backend`
+- Name: `cfn-builder-websocket`
 - Runtime: Python 3.11
-- Handler: `handler.handler`
+- Handler: `index.lambda_handler`
 - Timeout: 600 seconds
 - Memory: 512 MB
-- Size: ~24 MB (includes FastAPI, boto3, MCP client)
+- Inline code (no packaging needed)
 
 **Security**:
 - ✅ No function URL (not publicly accessible)
@@ -182,11 +182,12 @@ agents:
 - ✅ IAM role with minimal permissions
 - ✅ SigV4 signing for AgentCore requests
 
-**API Gateway**:
-- Type: HTTP API (cheaper, simpler than REST API)
-- Endpoint: `https://tuzwz6hzq7.execute-api.us-east-1.amazonaws.com/prod`
-- CORS: Enabled for all origins
+**WebSocket API**:
+- Type: WebSocket API
+- Endpoint: `wss://197c9q4u8i.execute-api.us-east-1.amazonaws.com/prod`
+- Routes: $connect, $default, $disconnect
 - Integration: Lambda proxy
+- **No timeout limits** - Perfect for long Claude operations
 
 ### Frontend Deployment (Ready for Amplify)
 
@@ -224,44 +225,48 @@ frontend:
 ```
 1. User enters prompt in UI
    ↓
-2. Frontend sends POST to API Gateway
+2. Frontend opens WebSocket connection
+   wss://197c9q4u8i.execute-api.us-east-1.amazonaws.com/prod
+   ↓
+3. Frontend sends message via WebSocket
    {
-     "jsonrpc": "2.0",
-     "method": "tools/call",
-     "params": {
-       "name": "build_cfn_template",
-       "arguments": {"prompt": "Create a 3-tier web application"}
-     }
+     "id": "12345",
+     "tool": "build_cfn_template",
+     "arguments": {"prompt": "Create a 3-tier web application"}
    }
    ↓
-3. API Gateway invokes Lambda
+4. WebSocket API invokes Lambda
    ↓
-4. Lambda signs request with SigV4
+5. Lambda signs request with SigV4
    • Gets AWS credentials
    • Creates AWSRequest
    • Signs with SigV4Auth
    • Adds Authorization header
    ↓
-5. Lambda calls AgentCore Runtime
+6. Lambda calls AgentCore Runtime
    POST https://bedrock-agentcore.us-east-1.amazonaws.com/runtimes/{arn}/invocations
    ↓
-6. AgentCore invokes MCP Server
+7. AgentCore invokes MCP Server
    • Validates authentication
    • Routes to build_cfn_template tool
    ↓
-7. MCP Tool executes
-   • Calls Claude via Bedrock
+8. MCP Tool executes
+   • Calls Claude via Bedrock (30-60 seconds)
    • Claude generates CloudFormation template
    • Returns structured response
    ↓
-8. Response flows back through layers
-   AgentCore → Lambda → API Gateway → Frontend
+9. Lambda sends response back via WebSocket
+   {
+     "type": "response",
+     "requestId": "12345",
+     "data": {"template": "...", "success": true}
+   }
    ↓
-9. Frontend displays in 4 tabs
-   • Architecture diagram (generated by Claude)
-   • Cost optimization tips (analyzed by Claude)
-   • CloudFormation template (syntax highlighted)
-   • Well-Architected review (evaluated by Claude)
+10. Frontend receives and displays in 4 tabs
+    • Architecture diagram (generated by Claude)
+    • Cost optimization tips (analyzed by Claude)
+    • CloudFormation template (syntax highlighted)
+    • Well-Architected review (evaluated by Claude)
 ```
 
 ## Security Model
@@ -273,10 +278,10 @@ frontend:
 - Calls backend API only
 - HTTPS enforced (when on Amplify)
 
-**Layer 2: API Gateway**
-- Public HTTPS endpoint
-- CORS configured
-- Rate limiting available
+**Layer 2: WebSocket API**
+- Public WebSocket endpoint
+- Routes to Lambda only
+- No timeout limits
 - CloudWatch logging
 
 **Layer 3: Lambda**
@@ -379,16 +384,18 @@ https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#gen-ai-observabi
 - CloudFormation API integration
 - Stateless, auto-scaling
 
-✅ **Backend Proxy** - Lambda + API Gateway
-- FastAPI application
+✅ **Backend Proxy** - Lambda + WebSocket API
+- Inline Python code
 - SigV4 signing for AgentCore
 - SSE format parsing
-- Error handling
+- No timeout limits
+- Real-time bidirectional communication
 
 ✅ **Frontend** - Ready for Amplify
 - Dark-themed UI
 - 4-tab interface
 - Syntax highlighting
+- WebSocket connection
 - Real-time updates
 
 ✅ **Source Code** - GitHub
@@ -649,7 +656,7 @@ aws amplify delete-app --app-id YOUR_APP_ID
 ## Resources
 
 - **GitHub**: https://github.com/adhavle-aws/ict-mcp-server
-- **API Endpoint**: https://tuzwz6hzq7.execute-api.us-east-1.amazonaws.com/prod
+- **WebSocket Endpoint**: wss://197c9q4u8i.execute-api.us-east-1.amazonaws.com/prod
 - **MCP Server ARN**: arn:aws:bedrock-agentcore:us-east-1:905767016260:runtime/mcp_server-CxkrO53RPH
 
-Your CloudFormation Builder is production-ready and deployed! 🚀
+Your CloudFormation Builder is production-ready with WebSocket support! 🚀

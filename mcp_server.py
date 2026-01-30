@@ -26,6 +26,28 @@ def get_bedrock_client():
     return boto3.client('bedrock-runtime', region_name=region)
 
 
+def call_bedrock_with_retry(bedrock, model_id, body, max_retries=3):
+    """Call Bedrock with exponential backoff retry"""
+    import time
+    
+    for attempt in range(max_retries):
+        try:
+            response = bedrock.invoke_model(
+                modelId=model_id,
+                body=json.dumps(body)
+            )
+            return response
+        except Exception as e:
+            error_str = str(e)
+            if 'ThrottlingException' in error_str or 'TooManyRequestsException' in error_str:
+                if attempt < max_retries - 1:
+                    wait_time = (2 ** attempt) + (0.1 * attempt)  # Exponential backoff
+                    print(f"Bedrock throttled, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                    continue
+            raise
+
+
 @mcp.tool()
 def generate_architecture_overview(prompt: str) -> dict:
     """
@@ -117,14 +139,15 @@ etc.
 
 Be specific and provide concrete reasoning for every choice."""
 
-        response = bedrock.invoke_model(
-            modelId='us.anthropic.claude-3-5-sonnet-20241022-v2:0',
-            body=json.dumps({
+        response = call_bedrock_with_retry(
+            bedrock,
+            'us.anthropic.claude-3-5-sonnet-20241022-v2:0',
+            {
                 'anthropic_version': 'bedrock-2023-05-31',
                 'max_tokens': 3072,
                 'system': system_prompt,
                 'messages': [{'role': 'user', 'content': user_message}]
-            })
+            }
         )
         
         response_body = json.loads(response['body'].read())
@@ -170,10 +193,11 @@ Output format: {format.upper()}
 
 Return ONLY the CloudFormation template, nothing else."""
 
-        # Call Claude via Bedrock
-        response = bedrock.invoke_model(
-            modelId='us.anthropic.claude-3-5-sonnet-20241022-v2:0',
-            body=json.dumps({
+        # Call Claude via Bedrock with retry
+        response = call_bedrock_with_retry(
+            bedrock,
+            'us.anthropic.claude-3-5-sonnet-20241022-v2:0',
+            {
                 'anthropic_version': 'bedrock-2023-05-31',
                 'max_tokens': 4096,
                 'system': system_prompt,
@@ -183,7 +207,7 @@ Return ONLY the CloudFormation template, nothing else."""
                         'content': user_message
                     }
                 ]
-            })
+            }
         )
         
         # Parse response
@@ -511,14 +535,15 @@ Based on the architecture and findings above, provide:
 
 IMPORTANT: Reference the specific architecture components and Well-Architected findings. Don't provide generic cost advice."""
 
-        response = bedrock.invoke_model(
-            modelId='us.anthropic.claude-3-5-sonnet-20241022-v2:0',
-            body=json.dumps({
+        response = call_bedrock_with_retry(
+            bedrock,
+            'us.anthropic.claude-3-5-sonnet-20241022-v2:0',
+            {
                 'anthropic_version': 'bedrock-2023-05-31',
                 'max_tokens': 4096,
                 'system': system_prompt,
                 'messages': [{'role': 'user', 'content': user_message}]
-            })
+            }
         )
         
         response_body = json.loads(response['body'].read())
@@ -575,14 +600,15 @@ For each of the 6 pillars (Operational Excellence, Security, Reliability, Perfor
 
 IMPORTANT: Reference the specific services, tiers, and components mentioned in the architecture. Don't provide generic AWS advice - make it specific to THIS 3-tier application design."""
 
-        response = bedrock.invoke_model(
-            modelId='us.anthropic.claude-3-5-sonnet-20241022-v2:0',
-            body=json.dumps({
+        response = call_bedrock_with_retry(
+            bedrock,
+            'us.anthropic.claude-3-5-sonnet-20241022-v2:0',
+            {
                 'anthropic_version': 'bedrock-2023-05-31',
                 'max_tokens': 4096,
                 'system': system_prompt,
                 'messages': [{'role': 'user', 'content': user_message}]
-            })
+            }
         )
         
         response_body = json.loads(response['body'].read())

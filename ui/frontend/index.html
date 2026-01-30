@@ -882,7 +882,33 @@
                 
                 switchTabByName('architecture');
                 
-                // Generate CloudFormation Template (silently, needed for next steps)
+                // Step 2: Well-Architected Review (from prompt)
+                document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Step 2/5: Performing Well-Architected Framework review...</div>';
+                const reviewResult = await callMcpToolWs('well_architected_review', {
+                    prompt: prompt
+                });
+                
+                if (reviewResult.success) {
+                    document.getElementById('reviewContent').innerHTML = `
+                        <div class="markdown-content">${marked.parse(reviewResult.review)}</div>
+                    `;
+                }
+                
+                // Step 3: Cost Optimization (from prompt)
+                document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Step 3/5: Analyzing cost optimization...</div>';
+                const costResult = await callMcpToolWs('analyze_cost_optimization', {
+                    prompt: prompt
+                });
+                
+                if (costResult.success) {
+                    document.getElementById('costContent').innerHTML = `
+                        <div class="markdown-content">${marked.parse(costResult.analysis)}</div>
+                    `;
+                }
+                
+                // Step 4: Generate CloudFormation Template
+                document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 4/5: Generating CloudFormation template...</div>';
+                
                 const templateResult = await callMcpToolWs('build_cfn_template', {
                     prompt: prompt,
                     format: 'yaml'
@@ -893,35 +919,6 @@
                 }
                 
                 currentTemplate = templateResult.template;
-                
-                // Step 2: Well-Architected Review
-                document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Step 2/5: Performing Well-Architected Framework review...</div>';
-                const reviewResult = await callMcpToolWs('well_architected_review', {
-                    template_body: currentTemplate
-                });
-                
-                if (reviewResult.success) {
-                    document.getElementById('reviewContent').innerHTML = `
-                        <div class="markdown-content">${marked.parse(reviewResult.review)}</div>
-                    `;
-                }
-                
-                // Step 3: Cost Optimization
-                document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Step 3/5: Analyzing cost optimization...</div>';
-                const costResult = await callMcpToolWs('analyze_cost_optimization', {
-                    template_body: currentTemplate
-                });
-                
-                if (costResult.success) {
-                    document.getElementById('costContent').innerHTML = `
-                        <div class="markdown-content">${marked.parse(costResult.analysis)}</div>
-                    `;
-                }
-                
-                // Step 4: Display CloudFormation Template
-                document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 4/5: Preparing CloudFormation template...</div>';
-                
-                document.getElementById('templateContent').innerHTML = `
                     <div class="button-group">
                         <button class="aws-button aws-button-primary" onclick="validateTemplate()" id="validateBtn">
                             Validate Template

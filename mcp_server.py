@@ -373,14 +373,14 @@ with Diagram("AWS Architecture", show=False, direction="LR"):
 
 
 @mcp.tool()
-def analyze_cost_optimization(template_body: str) -> dict:
+def analyze_cost_optimization(prompt: str = None, template_body: str = None) -> dict:
     """
-    Analyze CloudFormation template for cost optimization opportunities using Claude.
+    Analyze cost optimization opportunities from requirements or CloudFormation template.
     """
     try:
         bedrock = get_bedrock_client()
         
-        system_prompt = """You are an AWS cost optimization expert. Analyze CloudFormation templates and provide cost-saving recommendations.
+        system_prompt = """You are an AWS cost optimization expert. Analyze requirements or templates and provide cost-saving recommendations.
 
 Focus on:
 1. Right-sizing resources
@@ -389,7 +389,8 @@ Focus on:
 4. Network cost reduction
 5. Serverless alternatives"""
 
-        user_message = f"""Analyze this CloudFormation template for cost optimization:
+        if template_body:
+            user_message = f"""Analyze this CloudFormation template for cost optimization:
 
 {template_body}
 
@@ -398,6 +399,16 @@ Provide:
 2. Optimization recommendations
 3. Estimated savings
 4. Implementation priority"""
+        else:
+            user_message = f"""Analyze these requirements for cost optimization:
+
+{prompt}
+
+Provide:
+1. Potential cost drivers
+2. Cost-effective architecture recommendations
+3. Estimated costs
+4. Cost optimization strategies"""
 
         response = bedrock.invoke_model(
             modelId='us.anthropic.claude-3-5-sonnet-20241022-v2:0',
@@ -421,14 +432,14 @@ Provide:
 
 
 @mcp.tool()
-def well_architected_review(template_body: str) -> dict:
+def well_architected_review(prompt: str = None, template_body: str = None) -> dict:
     """
-    Perform AWS Well-Architected Framework review on CloudFormation template using Claude.
+    Perform AWS Well-Architected Framework review on requirements or CloudFormation template.
     """
     try:
         bedrock = get_bedrock_client()
         
-        system_prompt = """You are an AWS Well-Architected Framework expert. Review CloudFormation templates against the 6 pillars:
+        system_prompt = """You are an AWS Well-Architected Framework expert. Review requirements or templates against the 6 pillars:
 
 1. Operational Excellence
 2. Security
@@ -439,7 +450,8 @@ def well_architected_review(template_body: str) -> dict:
 
 Provide specific, actionable recommendations."""
 
-        user_message = f"""Review this CloudFormation template against AWS Well-Architected Framework:
+        if template_body:
+            user_message = f"""Review this CloudFormation template against AWS Well-Architected Framework:
 
 {template_body}
 
@@ -447,6 +459,16 @@ For each pillar, provide:
 1. Current state assessment
 2. Risks identified
 3. Recommendations
+4. Priority level (High/Medium/Low)"""
+        else:
+            user_message = f"""Review these requirements against AWS Well-Architected Framework:
+
+{prompt}
+
+For each pillar, provide:
+1. Architecture recommendations
+2. Potential risks
+3. Best practices to follow
 4. Priority level (High/Medium/Low)"""
 
         response = bedrock.invoke_model(

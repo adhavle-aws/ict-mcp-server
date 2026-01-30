@@ -248,40 +248,6 @@ Resources:
                           pass
                   
                   return {'statusCode': 500}
-                              'type': 'response',
-                              'requestId': request_id,
-                              'tool': tool,
-                              'data': data,
-                              'status': 'completed'
-                          }, event)
-                      else:
-                          send_message(connection_id, {
-                              'type': 'error',
-                              'requestId': request_id,
-                              'error': 'No result from MCP server'
-                          }, event)
-                      
-                      return {'statusCode': 200}
-                  
-                  else:
-                      return {'statusCode': 400}
-              
-              except Exception as e:
-                  print(f"Error: {e}")
-                  import traceback
-                  traceback.print_exc()
-                  
-                  if route_key == '$default':
-                      try:
-                          send_message(connection_id, {
-                              'type': 'error',
-                              'requestId': body.get('id'),
-                              'error': str(e)
-                          }, event)
-                      except:
-                          pass
-                  
-                  return {'statusCode': 500}
 
   # Connect Route
   ConnectRoute:

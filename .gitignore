@@ -18,6 +18,8 @@ yarn-error.log*
 # Lambda
 deploy/lambda_backend/package/
 deploy/lambda_backend/lambda.zip
+deploy/lambda_websocket/package/
+deploy/lambda_websocket/lambda.zip
 
 # IDE
 .vscode/

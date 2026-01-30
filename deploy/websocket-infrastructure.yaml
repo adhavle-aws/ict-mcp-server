@@ -133,6 +133,7 @@ Resources:
               
               with urllib.request.urlopen(req, timeout=120) as response:
                   response_data = response.read().decode('utf-8')
+                  print(f"Response data (first 500 chars): {response_data[:500]}")
                   
                   # Parse SSE format
                   if response_data.startswith('event:'):
@@ -142,7 +143,11 @@ Resources:
                               json_data = line[6:]
                               result = json.loads(json_data)
                               return result
+                      # If no data line found, return error
+                      return {'error': 'No data in SSE response'}
                   else:
+                      if not response_data.strip():
+                          return {'error': 'Empty response from AgentCore'}
                       return json.loads(response_data)
           
           def lambda_handler(event, context):

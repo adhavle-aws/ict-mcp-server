@@ -504,54 +504,33 @@
             document.getElementById('summaryContent').innerHTML = '<div class="loading">⏳ Performing Well-Architected review...<br><br>This uses Claude and may take 30-60 seconds</div>';
             
             try {
-                // Step 1: Build template (this is the critical one)
-                console.log('Step 1: Building template via WebSocket...');
-                const templateResult = await callMcpToolWs('build_cfn_template', {
-                    prompt: prompt,
-                    format: 'yaml'
+                // Step 1: Architecture Overview - Design first
+                console.log('Step 1: Generating architecture overview...');
+                document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 1/4: Analyzing requirements and designing architecture...<br><br>This uses Claude and may take 30-60 seconds</div>';
+                
+                const archResult = await callMcpToolWs('generate_architecture_diagram', {
+                    template_body: `Requirements: ${prompt}`
                 });
                 
-                if (!templateResult.success) {
-                    throw new Error(templateResult.error);
+                if (archResult.success) {
+                    document.getElementById('architectureContent').innerHTML = `
+                        <div class="diagram-display">${formatTextResponse(archResult.diagram)}</div>
+                    `;
+                } else {
+                    document.getElementById('architectureContent').innerHTML = `
+                        <div class="error">Failed to generate architecture: ${archResult.error}</div>
+                    `;
                 }
                 
-                currentTemplate = templateResult.template;
+                // Switch to architecture tab to show progress
+                switchTabByName('architecture');
                 
-                // Display template immediately
-                const formattedTemplate = formatYamlAsJson(currentTemplate);
-                document.getElementById('templateContent').innerHTML = `
-                    <button class="copy-btn" onclick="copyTemplate()" id="copyBtn">📋 Copy</button>
-                    <div class="template-display">${formattedTemplate}</div>
-                `;
+                // Step 2: Cost Optimization - Analyze costs before building
+                console.log('Step 2: Analyzing cost optimization...');
+                document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Step 2/4: Analyzing cost optimization opportunities...<br><br>This uses Claude and may take 30-60 seconds</div>';
                 
-                // Switch to template tab to show progress
-                switchTabByName('template');
-                
-                // Step 2-4: Run in parallel (non-blocking)
-                console.log('Steps 2-4: Running analysis in parallel...');
-                
-                // Architecture diagram
-                callMcpToolWs('generate_architecture_diagram', {
-                    template_body: currentTemplate
-                }).then(archResult => {
-                    if (archResult.success) {
-                        document.getElementById('architectureContent').innerHTML = `
-                            <div class="diagram-display">${formatTextResponse(archResult.diagram)}</div>
-                        `;
-                    } else {
-                        document.getElementById('architectureContent').innerHTML = `
-                            <div class="error">Failed to generate diagram: ${archResult.error}</div>
-                        `;
-                    }
-                }).catch(err => {
-                    document.getElementById('architectureContent').innerHTML = `
-                        <div class="error">Error: ${err.message}</div>
-                    `;
-                });
-                
-                // Cost optimization
                 callMcpToolWs('analyze_cost_optimization', {
-                    template_body: currentTemplate
+                    template_body: `Requirements: ${prompt}`
                 }).then(costResult => {
                     if (costResult.success) {
                         document.getElementById('costContent').innerHTML = `
@@ -568,9 +547,12 @@
                     `;
                 });
                 
-                // Well-Architected review
+                // Step 3: Well-Architected Review - Review before template
+                console.log('Step 3: Performing Well-Architected review...');
+                document.getElementById('summaryContent').innerHTML = '<div class="loading">⏳ Step 3/4: Performing Well-Architected Framework review...<br><br>This uses Claude and may take 30-60 seconds</div>';
+                
                 callMcpToolWs('well_architected_review', {
-                    template_body: currentTemplate
+                    template_body: `Requirements: ${prompt}`
                 }).then(reviewResult => {
                     if (reviewResult.success) {
                         document.getElementById('summaryContent').innerHTML = `
@@ -586,6 +568,28 @@
                         <div class="error">Error: ${err.message}</div>
                     `;
                 });
+                
+                // Step 4: Build CloudFormation Template - Final step
+                console.log('Step 4: Building CloudFormation template...');
+                document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 4/4: Building CloudFormation template...<br><br>This uses Claude and may take 30-60 seconds</div>';
+                
+                const templateResult = await callMcpToolWs('build_cfn_template', {
+                    prompt: prompt,
+                    format: 'yaml'
+                });
+                
+                if (!templateResult.success) {
+                    throw new Error(templateResult.error);
+                }
+                
+                currentTemplate = templateResult.template;
+                
+                // Display template with JSON formatting
+                const formattedTemplate = formatYamlAsJson(currentTemplate);
+                document.getElementById('templateContent').innerHTML = `
+                    <button class="copy-btn" onclick="copyTemplate()" id="copyBtn">📋 Copy</button>
+                    <div class="template-display">${formattedTemplate}</div>
+                `;
                 
             } catch (error) {
                 alert('Error: ' + error.message);

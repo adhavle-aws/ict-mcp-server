@@ -56,7 +56,7 @@ Resources:
       Handler: index.lambda_handler
       Role: !GetAtt WebSocketLambdaRole.Arn
       Timeout: 600
-      MemorySize: 512
+      MemorySize: 1024
       Environment:
         Variables:
           AGENT_ARN: !Ref AgentArn

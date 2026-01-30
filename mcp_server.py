@@ -286,20 +286,29 @@ def parse_cfn_resources(template_body: str) -> list:
         # Try parsing as YAML first
         try:
             template = yaml.safe_load(template_body)
-        except:
+            print(f"Parsed as YAML. Keys: {list(template.keys())}")
+        except Exception as yaml_error:
+            print(f"YAML parsing failed: {yaml_error}")
             # Try JSON
             template = json.loads(template_body)
+            print(f"Parsed as JSON. Keys: {list(template.keys())}")
         
         if 'Resources' in template:
+            print(f"Found Resources section with {len(template['Resources'])} resources")
             for name, resource in template['Resources'].items():
                 resources.append({
                     'name': name,
                     'type': resource.get('Type', 'Unknown'),
                     'properties': resource.get('Properties', {})
                 })
+        else:
+            print(f"No Resources section found. Template keys: {list(template.keys())}")
     except Exception as e:
         print(f"Error parsing template: {e}")
+        import traceback
+        traceback.print_exc()
     
+    print(f"Returning {len(resources)} resources")
     return resources
 
 

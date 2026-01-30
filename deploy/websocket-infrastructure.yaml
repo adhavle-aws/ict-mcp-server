@@ -103,6 +103,10 @@ Resources:
           
           def call_mcp_tool(tool_name, arguments):
               """Call MCP server via AgentCore"""
+              print(f"Calling MCP tool: {tool_name}")
+              print(f"Arguments keys: {list(arguments.keys())}")
+              print(f"Prompt length: {len(arguments.get('prompt', ''))}")
+              
               session = boto3.Session()
               credentials = session.get_credentials()
               
@@ -145,8 +149,8 @@ Resources:
                   if not response_data.strip():
                       return {'error': 'Empty response from AgentCore'}
                   
-                  # Parse SSE format
-                  if response_data.startswith('event:') or 'event:' in response_data[:50]:
+                  # Parse SSE format (may start with ping comment)
+                  if 'event:' in response_data:
                       print("Parsing as SSE format")
                       lines = response_data.split('\n')
                       for line in lines:

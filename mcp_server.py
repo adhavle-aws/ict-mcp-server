@@ -378,6 +378,9 @@ def analyze_cost_optimization(prompt: str = None, template_body: str = None) -> 
     Analyze cost optimization opportunities from requirements or CloudFormation template.
     """
     try:
+        if not prompt and not template_body:
+            return {'success': False, 'error': 'Either prompt or template_body must be provided'}
+        
         bedrock = get_bedrock_client()
         
         system_prompt = """You are an AWS cost optimization expert. Analyze requirements or templates and provide cost-saving recommendations.
@@ -399,7 +402,7 @@ Provide:
 2. Optimization recommendations
 3. Estimated savings
 4. Implementation priority"""
-        else:
+        elif prompt:
             user_message = f"""Analyze these requirements for cost optimization:
 
 {prompt}
@@ -437,6 +440,9 @@ def well_architected_review(prompt: str = None, template_body: str = None) -> di
     Perform AWS Well-Architected Framework review on requirements or CloudFormation template.
     """
     try:
+        if not prompt and not template_body:
+            return {'success': False, 'error': 'Either prompt or template_body must be provided'}
+        
         bedrock = get_bedrock_client()
         
         system_prompt = """You are an AWS Well-Architected Framework expert. Review requirements or templates against the 6 pillars:
@@ -460,7 +466,7 @@ For each pillar, provide:
 2. Risks identified
 3. Recommendations
 4. Priority level (High/Medium/Low)"""
-        else:
+        elif prompt:
             user_message = f"""Review these requirements against AWS Well-Architected Framework:
 
 {prompt}

@@ -868,7 +868,7 @@
             
             try {
                 // Step 1: Architecture Overview (text-based summary)
-                document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 1/6: Analyzing requirements and designing architecture...</div>';
+                document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 1/5: Analyzing requirements and designing architecture...</div>';
                 
                 const archResult = await callMcpToolWs('generate_architecture_overview', {
                     prompt: prompt
@@ -882,7 +882,7 @@
                 
                 switchTabByName('architecture');
                 
-                // Step 2: Generate CloudFormation Template (needed for analyses)
+                // Generate CloudFormation Template (silently, needed for next steps)
                 const templateResult = await callMcpToolWs('build_cfn_template', {
                     prompt: prompt,
                     format: 'yaml'
@@ -894,8 +894,8 @@
                 
                 currentTemplate = templateResult.template;
                 
-                // Step 3: Well-Architected Review
-                document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Step 2/6: Performing Well-Architected Framework review...</div>';
+                // Step 2: Well-Architected Review
+                document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Step 2/5: Performing Well-Architected Framework review...</div>';
                 const reviewResult = await callMcpToolWs('well_architected_review', {
                     template_body: currentTemplate
                 });
@@ -906,8 +906,8 @@
                     `;
                 }
                 
-                // Step 4: Cost Optimization
-                document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Step 3/6: Analyzing cost optimization...</div>';
+                // Step 3: Cost Optimization
+                document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Step 3/5: Analyzing cost optimization...</div>';
                 const costResult = await callMcpToolWs('analyze_cost_optimization', {
                     template_body: currentTemplate
                 });
@@ -918,8 +918,8 @@
                     `;
                 }
                 
-                // Step 5: Display CloudFormation Template
-                document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 4/6: Preparing CloudFormation template...</div>';
+                // Step 4: Display CloudFormation Template
+                document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 4/5: Preparing CloudFormation template...</div>';
                 
                 document.getElementById('templateContent').innerHTML = `
                     <div class="button-group">
@@ -945,10 +945,10 @@
                     });
                 });
                 
-                // Step 6: Generate Professional Diagram (in background)
+                // Step 5: Generate Professional Diagram (in background)
                 document.getElementById('diagramCanvas').innerHTML = `
                     <text x="50%" y="50%" text-anchor="middle" fill="#545b64" font-size="16">
-                        ⏳ Step 5/6: Generating professional diagram...
+                        ⏳ Step 5/5: Generating professional diagram...
                     </text>
                 `;
                 

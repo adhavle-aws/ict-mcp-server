@@ -3,15 +3,41 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CloudFormation Builder</title>
+    <title>CloudFormation Builder - AWS Console</title>
+    
+    <!-- Marked.js for markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <!-- Monaco Editor for CFN template -->
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+    
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        /* AWS Console Color Scheme */
+        :root {
+            --aws-squid-ink: #232f3e;
+            --aws-smile-orange: #ff9900;
+            --aws-dark-blue: #16191f;
+            --aws-light-gray: #eaeded;
+            --aws-border-gray: #d5dbdb;
+            --aws-text-primary: #16191f;
+            --aws-text-secondary: #545b64;
+            --aws-bg-primary: #ffffff;
+            --aws-bg-secondary: #fafafa;
+            --aws-link-blue: #0073bb;
+            --aws-success-green: #037f0c;
+            --aws-error-red: #d13212;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
         
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #1a1a2e;
-            color: #e0e0e0;
-            min-height: 100vh;
+            font-family: 'Amazon Ember', 'Helvetica Neue', Roboto, Arial, sans-serif;
+            background: var(--aws-bg-secondary);
+            color: var(--aws-text-primary);
         }
         
         .container {
@@ -19,99 +45,119 @@
             height: 100vh;
         }
         
+        /* AWS Console Sidebar */
         .sidebar {
-            width: 250px;
-            background: #16213e;
-            padding: 1.5rem;
-            border-right: 1px solid #2a2a4e;
-        }
-        
-        .sidebar h2 {
-            color: #667eea;
-            font-size: 1.2rem;
-            margin-bottom: 1.5rem;
-        }
-        
-        .agent-item {
-            background: #0f3460;
-            padding: 1rem;
-            border-radius: 8px;
-            margin-bottom: 0.5rem;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        
-        .agent-item.active {
-            background: #667eea;
-        }
-        
-        .agent-item:hover {
-            background: #5568d3;
-        }
-        
-        .agent-name {
-            font-weight: 600;
-            margin-bottom: 0.25rem;
-        }
-        
-        .agent-desc {
-            font-size: 0.85rem;
-            opacity: 0.8;
-        }
-        
-        .main-content {
-            flex: 1;
+            width: 240px;
+            background: var(--aws-squid-ink);
+            color: white;
+            padding: 0;
             display: flex;
             flex-direction: column;
         }
         
-        .chat-area {
+        .sidebar-header {
+            padding: 1.5rem 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .sidebar-header h2 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: white;
+            margin-bottom: 0.25rem;
+        }
+        
+        .sidebar-header p {
+            font-size: 0.75rem;
+            color: rgba(255, 255, 255, 0.6);
+        }
+        
+        .sidebar-menu {
             flex: 1;
-            padding: 2rem;
-            overflow-y: auto;
+            padding: 0.5rem 0;
         }
         
-        .message {
-            margin-bottom: 1.5rem;
-            padding: 1rem;
-            border-radius: 12px;
-            max-width: 80%;
+        .menu-item {
+            padding: 0.75rem 1rem;
+            cursor: pointer;
+            transition: background 0.2s;
+            border-left: 3px solid transparent;
+            color: rgba(255, 255, 255, 0.8);
         }
         
-        .message.user {
-            background: #667eea;
-            margin-left: auto;
+        .menu-item:hover {
+            background: rgba(255, 255, 255, 0.05);
         }
         
-        .message.assistant {
-            background: #2a2a4e;
+        .menu-item.active {
+            background: rgba(255, 153, 0, 0.1);
+            border-left-color: var(--aws-smile-orange);
+            color: white;
         }
         
+        .menu-item.disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        
+        .menu-item-title {
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 0.25rem;
+        }
+        
+        .menu-item-desc {
+            font-size: 0.75rem;
+            opacity: 0.7;
+        }
+        
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: var(--aws-bg-primary);
+        }
+        
+        .header {
+            background: var(--aws-squid-ink);
+            color: white;
+            padding: 1rem 2rem;
+            border-bottom: 4px solid var(--aws-smile-orange);
+        }
+        
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 400;
+        }
+        
+        /* AWS Console Tabs */
         .tabs {
             display: flex;
-            gap: 0.5rem;
-            padding: 1rem 2rem 0 2rem;
-            border-bottom: 1px solid #2a2a4e;
+            background: var(--aws-bg-secondary);
+            border-bottom: 1px solid var(--aws-border-gray);
+            padding: 0 2rem;
         }
         
         .tab {
-            padding: 0.75rem 1.5rem;
+            padding: 1rem 1.5rem;
             background: transparent;
             border: none;
-            color: #999;
+            color: var(--aws-text-secondary);
             cursor: pointer;
-            border-bottom: 3px solid transparent;
-            transition: all 0.3s;
-            font-weight: 600;
-        }
-        
-        .tab.active {
-            color: #667eea;
-            border-bottom-color: #667eea;
+            border-bottom: 2px solid transparent;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s;
         }
         
         .tab:hover {
-            color: #e0e0e0;
+            color: var(--aws-text-primary);
+        }
+        
+        .tab.active {
+            color: var(--aws-link-blue);
+            border-bottom-color: var(--aws-link-blue);
         }
         
         .tab-content {
@@ -125,210 +171,221 @@
             display: block;
         }
         
+        /* Markdown Content */
+        .markdown-content {
+            max-width: 1200px;
+            line-height: 1.6;
+            text-align: left;
+        }
+        
+        .markdown-content h1,
+        .markdown-content h2,
+        .markdown-content h3 {
+            color: var(--aws-text-primary);
+            margin: 1.5rem 0 1rem 0;
+            font-weight: 600;
+        }
+        
+        .markdown-content h1 { font-size: 1.75rem; }
+        .markdown-content h2 { font-size: 1.5rem; }
+        .markdown-content h3 { font-size: 1.25rem; }
+        
+        .markdown-content p {
+            margin-bottom: 1rem;
+            color: var(--aws-text-primary);
+        }
+        
+        .markdown-content ul,
+        .markdown-content ol {
+            margin-left: 2rem;
+            margin-bottom: 1rem;
+        }
+        
+        .markdown-content li {
+            margin-bottom: 0.5rem;
+        }
+        
+        .markdown-content code {
+            background: #f4f4f4;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        
+        .markdown-content pre {
+            background: #f4f4f4;
+            padding: 1rem;
+            border-radius: 4px;
+            overflow-x: auto;
+            margin-bottom: 1rem;
+        }
+        
+        .markdown-content pre code {
+            background: none;
+            padding: 0;
+        }
+        
+        /* Monaco Editor Container */
+        #editor-container {
+            height: 500px;
+            border: 1px solid var(--aws-border-gray);
+            margin-bottom: 1rem;
+        }
+        
+        /* AWS Buttons */
+        .aws-button {
+            padding: 0.5rem 1.5rem;
+            border: none;
+            border-radius: 2px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+        
+        .aws-button-primary {
+            background: var(--aws-smile-orange);
+            color: white;
+        }
+        
+        .aws-button-primary:hover:not(:disabled) {
+            background: #ec7211;
+        }
+        
+        .aws-button-secondary {
+            background: white;
+            color: var(--aws-text-primary);
+            border: 1px solid var(--aws-border-gray);
+        }
+        
+        .aws-button-secondary:hover:not(:disabled) {
+            background: var(--aws-bg-secondary);
+        }
+        
+        .aws-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        /* Input Area */
         .input-area {
             padding: 1.5rem 2rem;
-            background: #16213e;
-            border-top: 1px solid #2a2a4e;
+            background: var(--aws-bg-secondary);
+            border-top: 1px solid var(--aws-border-gray);
         }
         
         .input-group {
             display: flex;
             gap: 1rem;
-            align-items: center;
+            align-items: flex-start;
         }
         
         textarea {
             flex: 1;
-            padding: 1rem;
-            background: #0f3460;
-            border: 2px solid #2a2a4e;
-            border-radius: 12px;
-            color: #e0e0e0;
+            padding: 0.75rem;
+            background: white;
+            border: 1px solid var(--aws-border-gray);
+            border-radius: 2px;
+            color: var(--aws-text-primary);
             font-family: inherit;
-            font-size: 1rem;
-            resize: none;
-            min-height: 60px;
+            font-size: 0.9rem;
+            resize: vertical;
+            min-height: 80px;
         }
         
         textarea:focus {
             outline: none;
-            border-color: #667eea;
-        }
-        
-        .send-btn {
-            padding: 1rem 2rem;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 12px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        
-        .send-btn:hover:not(:disabled) {
-            background: #5568d3;
-            transform: translateY(-2px);
-        }
-        
-        .send-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        
-        .template-display {
-            background: #0d1117;
-            border: 1px solid #30363d;
-            border-radius: 8px;
-            padding: 1.5rem;
-            font-family: 'Monaco', 'Courier New', monospace;
-            font-size: 0.9rem;
-            line-height: 1.6;
-            white-space: pre;
-            overflow-x: auto;
-            color: #c9d1d9;
-        }
-        
-        .template-display .json-key {
-            color: #79c0ff;
-        }
-        
-        .template-display .json-string {
-            color: #a5d6ff;
-        }
-        
-        .template-display .json-number {
-            color: #79c0ff;
-        }
-        
-        .template-display .json-boolean {
-            color: #ff7b72;
-        }
-        
-        .diagram-display {
-            background: #0d1117;
-            border: 1px solid #30363d;
-            border-radius: 8px;
-            padding: 1.5rem;
-            font-family: 'Monaco', 'Courier New', monospace;
-            font-size: 0.85rem;
-            line-height: 1.4;
-            white-space: pre;
-            overflow-x: auto;
-            color: #c9d1d9;
-        }
-        
-        .analysis-section {
-            background: #0d1117;
-            border: 1px solid #30363d;
-            border-radius: 8px;
-            padding: 1.5rem;
-            margin-bottom: 1rem;
-            color: #c9d1d9;
-        }
-        
-        .analysis-section h3 {
-            color: #667eea;
-            margin-bottom: 1rem;
-        }
-        
-        .analysis-section strong {
-            color: #79c0ff;
-        }
-        
-        .analysis-section code {
-            background: #161b22;
-            padding: 0.2rem 0.4rem;
-            border-radius: 4px;
-            color: #a5d6ff;
+            border-color: var(--aws-link-blue);
+            box-shadow: 0 0 0 1px var(--aws-link-blue);
         }
         
         .loading {
             text-align: center;
-            padding: 2rem;
-            color: #999;
+            padding: 3rem;
+            color: var(--aws-text-secondary);
         }
         
-        .error {
-            background: #ff6b6b;
-            color: white;
+        .error-banner {
+            background: #fef6f6;
+            border: 1px solid var(--aws-error-red);
+            border-radius: 2px;
             padding: 1rem;
-            border-radius: 8px;
             margin-bottom: 1rem;
+            color: var(--aws-error-red);
         }
         
-        .copy-btn {
-            float: right;
-            padding: 0.5rem 1rem;
-            background: #48bb78;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.85rem;
+        .success-banner {
+            background: #f2f8f2;
+            border: 1px solid var(--aws-success-green);
+            border-radius: 2px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            color: var(--aws-success-green);
         }
         
-        .copy-btn:hover {
-            background: #38a169;
+        .button-group {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="sidebar">
-            <h2>MWC Agents</h2>
-            <p style="font-size: 0.85rem; color: #999; margin-bottom: 1.5rem;">Multi-Agent Infrastructure System</p>
-            
-            <div class="agent-item active">
-                <div class="agent-name">OnboardingAgent</div>
-                <div class="agent-desc">Helps design and architect AWS solutions</div>
+            <div class="sidebar-header">
+                <h2>MWC Agents</h2>
+                <p>Multi-Agent Infrastructure System</p>
             </div>
             
-            <div class="agent-item" style="opacity: 0.5;">
-                <div class="agent-name">ProvisioningAgent</div>
-                <div class="agent-desc">Deploys CloudFormation stacks</div>
-            </div>
-            
-            <div class="agent-item" style="opacity: 0.5;">
-                <div class="agent-name">MWCAgent</div>
-                <div class="agent-desc">Orchestrates multi-agent workflows</div>
+            <div class="sidebar-menu">
+                <div class="menu-item active" id="onboardingMenu">
+                    <div class="menu-item-title">Onboarding Agent</div>
+                    <div class="menu-item-desc">Design and architect AWS solutions</div>
+                </div>
+                
+                <div class="menu-item disabled" id="provisioningMenu">
+                    <div class="menu-item-title">Provisioning Agent</div>
+                    <div class="menu-item-desc">Deploy CloudFormation stacks</div>
+                </div>
             </div>
         </div>
         
         <div class="main-content">
+            <div class="header">
+                <h1>CloudFormation Builder</h1>
+            </div>
+            
             <div class="tabs">
                 <button class="tab active" onclick="switchTab('architecture')">Architecture Overview</button>
-                <button class="tab" onclick="switchTab('cost')">Cost Optimization Tips</button>
-                <button class="tab" onclick="switchTab('summary')">Well-Architected Review</button>
+                <button class="tab" onclick="switchTab('cost')">Cost Optimization</button>
+                <button class="tab" onclick="switchTab('review')">Well-Architected Review</button>
                 <button class="tab" onclick="switchTab('template')">CloudFormation Template</button>
             </div>
             
             <div id="architecture" class="tab-content active">
-                <h2 style="color: #667eea; margin-bottom: 1rem;">Architecture Overview</h2>
                 <div id="architectureContent" class="loading">
-                    Generate a CloudFormation template to see the architecture diagram
+                    Enter your infrastructure requirements below to begin
                 </div>
             </div>
             
             <div id="cost" class="tab-content">
-                <h2 style="color: #667eea; margin-bottom: 1rem;">Cost Optimization Tips</h2>
                 <div id="costContent" class="loading">
-                    Generate a CloudFormation template to see cost optimization recommendations
+                    Generate architecture to see cost optimization recommendations
+                </div>
+            </div>
+            
+            <div id="review" class="tab-content">
+                <div id="reviewContent" class="loading">
+                    Generate architecture to see Well-Architected Framework review
                 </div>
             </div>
             
             <div id="template" class="tab-content">
-                <h2 style="color: #667eea; margin-bottom: 1rem;">CloudFormation Template</h2>
-                <button class="copy-btn" onclick="copyTemplate()" id="copyBtn" style="display: none;">📋 Copy</button>
-                <div id="templateContent" class="loading">
-                    Enter your requirements below to generate a CloudFormation template
-                </div>
-            </div>
-            
-            <div id="summary" class="tab-content">
-                <h2 style="color: #667eea; margin-bottom: 1rem;">Well-Architected Review</h2>
-                <div id="summaryContent" class="loading">
-                    Generate a CloudFormation template to see the Well-Architected review
+                <div id="templateContent">
+                    <div class="loading">Generate architecture to create CloudFormation template</div>
                 </div>
             </div>
             
@@ -336,10 +393,10 @@
                 <div class="input-group">
                     <textarea 
                         id="promptInput" 
-                        placeholder="Describe your infrastructure requirements...&#10;&#10;Example: Create a 3-tier web application with VPC, ALB, ECS, and RDS"
+                        placeholder="Describe your infrastructure requirements...&#10;&#10;Example: Create a 3-tier web application with VPC, ALB, ECS, and RDS in us-east-1. It should be highly available and secure within a private network."
                     ></textarea>
-                    <button class="send-btn" onclick="generateInfrastructure()" id="sendBtn">
-                        Send
+                    <button class="aws-button aws-button-primary" onclick="generateInfrastructure()" id="sendBtn">
+                        Generate
                     </button>
                 </div>
             </div>
@@ -347,12 +404,15 @@
     </div>
     
     <script>
-        const BACKEND_URL = 'https://tuzwz6hzq7.execute-api.us-east-1.amazonaws.com/prod';
         const WS_URL = 'wss://197c9q4u8i.execute-api.us-east-1.amazonaws.com/prod';
         let currentTemplate = '';
-        let sessionId = null;
         let ws = null;
         let requestCallbacks = new Map();
+        let editor = null;
+        let isValidated = false;
+        
+        // Initialize Monaco Editor
+        require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' }});
         
         // Initialize WebSocket
         function initWebSocket() {
@@ -367,7 +427,6 @@
                 console.log('📨 Received:', message);
                 
                 if (message.type === 'connected') {
-                    console.log('Connected with ID:', message.connectionId);
                     return;
                 }
                 
@@ -392,13 +451,11 @@
             };
             
             ws.onclose = () => {
-                console.log('🔌 WebSocket closed');
-                // Reconnect after 2 seconds
+                console.log('🔌 WebSocket closed, reconnecting...');
                 setTimeout(initWebSocket, 2000);
             };
         }
         
-        // Initialize on page load
         initWebSocket();
         
         function callMcpToolWs(toolName, args) {
@@ -431,58 +488,26 @@
         }
         
         function switchTab(tabName) {
-            // Update tab buttons
             document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
             event.target.classList.add('active');
             
-            // Update tab content
             document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
             document.getElementById(tabName).classList.add('active');
         }
         
-        async function callMcpTool(toolName, args) {
-            const headers = {
-                'Content-Type': 'application/json',
-            };
-            
-            if (sessionId) {
-                headers['X-Session-Id'] = sessionId;
+        function switchTabByName(tabName) {
+            const tabs = ['architecture', 'cost', 'review', 'template'];
+            const index = tabs.indexOf(tabName);
+            if (index >= 0) {
+                document.querySelectorAll('.tab')[index].classList.add('active');
+                document.querySelectorAll('.tab').forEach((tab, i) => {
+                    if (i !== index) tab.classList.remove('active');
+                });
+                document.getElementById(tabName).classList.add('active');
+                document.querySelectorAll('.tab-content').forEach((content, i) => {
+                    if (i !== index) content.classList.remove('active');
+                });
             }
-            
-            const response = await fetch(`${BACKEND_URL}/api/mcp`, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify({
-                    jsonrpc: '2.0',
-                    id: Date.now(),
-                    method: 'tools/call',
-                    params: {
-                        name: toolName,
-                        arguments: args
-                    }
-                })
-            });
-            
-            const newSessionId = response.headers.get('X-Session-Id');
-            if (newSessionId) {
-                sessionId = newSessionId;
-            }
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const result = await response.json();
-            
-            if (result.error) {
-                throw new Error(`MCP Error: ${result.error.message}`);
-            }
-            
-            if (result.result?.content?.[0]?.text) {
-                return JSON.parse(result.result.content[0].text);
-            }
-            
-            return null;
         }
         
         async function generateInfrastructure() {
@@ -490,81 +515,61 @@
             const sendBtn = document.getElementById('sendBtn');
             
             if (!prompt) {
-                alert('Please enter a prompt');
+                alert('Please enter infrastructure requirements');
                 return;
             }
             
             sendBtn.disabled = true;
-            sendBtn.innerHTML = '<span class="loading">⏳</span> Generating (this may take 30-60 seconds)...';
+            sendBtn.textContent = 'Generating...';
+            isValidated = false;
+            document.getElementById('provisioningMenu').classList.add('disabled');
             
-            // Show loading in all tabs
-            document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Generating architecture diagram...<br><br>This uses Claude and may take 30-60 seconds</div>';
-            document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Analyzing cost optimization...<br><br>This uses Claude and may take 30-60 seconds</div>';
-            document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Building CloudFormation template...<br><br>This uses Claude and may take 30-60 seconds</div>';
-            document.getElementById('summaryContent').innerHTML = '<div class="loading">⏳ Performing Well-Architected review...<br><br>This uses Claude and may take 30-60 seconds</div>';
+            // Show loading
+            document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 1/4: Analyzing requirements and designing architecture...</div>';
+            document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Waiting for architecture...</div>';
+            document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Waiting for cost analysis...</div>';
+            document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Waiting for review...</div>';
             
             try {
-                // Step 1: Architecture Overview - Design first
-                console.log('Step 1: Generating architecture overview...');
-                document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 1/4: Analyzing requirements and designing architecture...<br><br>This uses Claude and may take 30-60 seconds</div>';
-                
+                // Step 1: Architecture
                 const archResult = await callMcpToolWs('generate_architecture_diagram', {
                     template_body: `Requirements: ${prompt}`
                 });
                 
                 if (archResult.success) {
                     document.getElementById('architectureContent').innerHTML = `
-                        <div class="diagram-display">${formatTextResponse(archResult.diagram)}</div>
-                    `;
-                } else {
-                    document.getElementById('architectureContent').innerHTML = `
-                        <div class="error">Failed to generate architecture: ${archResult.error}</div>
+                        <div class="markdown-content">${marked.parse(archResult.diagram)}</div>
                     `;
                 }
                 
-                // Switch to architecture tab to show progress
                 switchTabByName('architecture');
                 
-                // Step 2: Cost Optimization - Analyze costs before building
-                console.log('Step 2: Analyzing cost optimization...');
-                document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Step 2/4: Analyzing cost optimization opportunities...<br><br>This uses Claude and may take 30-60 seconds</div>';
-                
+                // Step 2: Cost
+                document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Step 2/4: Analyzing cost optimization...</div>';
                 const costResult = await callMcpToolWs('analyze_cost_optimization', {
                     template_body: `Requirements: ${prompt}`
                 });
                 
                 if (costResult.success) {
                     document.getElementById('costContent').innerHTML = `
-                        <div class="analysis-section">${formatTextResponse(costResult.analysis)}</div>
-                    `;
-                } else {
-                    document.getElementById('costContent').innerHTML = `
-                        <div class="error">Failed to analyze costs: ${costResult.error}</div>
+                        <div class="markdown-content">${marked.parse(costResult.analysis)}</div>
                     `;
                 }
                 
-                // Step 3: Well-Architected Review - Review before template
-                console.log('Step 3: Performing Well-Architected review...');
-                document.getElementById('summaryContent').innerHTML = '<div class="loading">⏳ Step 3/4: Performing Well-Architected Framework review...<br><br>This uses Claude and may take 30-60 seconds</div>';
-                
+                // Step 3: Well-Architected
+                document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Step 3/4: Performing Well-Architected review...</div>';
                 const reviewResult = await callMcpToolWs('well_architected_review', {
                     template_body: `Requirements: ${prompt}`
                 });
                 
                 if (reviewResult.success) {
-                    document.getElementById('summaryContent').innerHTML = `
-                        <div class="analysis-section">${formatTextResponse(reviewResult.review)}</div>
-                    `;
-                } else {
-                    document.getElementById('summaryContent').innerHTML = `
-                        <div class="error">Failed to perform review: ${reviewResult.error}</div>
+                    document.getElementById('reviewContent').innerHTML = `
+                        <div class="markdown-content">${marked.parse(reviewResult.review)}</div>
                     `;
                 }
                 
-                // Step 4: Build CloudFormation Template - Final step
-                console.log('Step 4: Building CloudFormation template...');
-                document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 4/4: Building CloudFormation template...<br><br>This uses Claude and may take 30-60 seconds</div>';
-                
+                // Step 4: Template
+                document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 4/4: Building CloudFormation template...</div>';
                 const templateResult = await callMcpToolWs('build_cfn_template', {
                     prompt: prompt,
                     format: 'yaml'
@@ -576,93 +581,93 @@
                 
                 currentTemplate = templateResult.template;
                 
-                // Display template with thinking process
-                const formattedTemplate = formatYamlAsJson(currentTemplate);
-                const thinkingHtml = templateResult.thinking ? `
-                    <div class="thinking-section" style="background: #1a1a2e; border: 1px solid #30363d; border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
-                        <h4 style="color: #79c0ff; margin-bottom: 0.5rem;">💭 Claude's Thinking Process</h4>
-                        <div style="color: #a5d6ff; font-size: 0.9rem; line-height: 1.6;">${formatTextResponse(templateResult.thinking)}</div>
-                    </div>
-                ` : '';
-                
+                // Create Monaco editor
                 document.getElementById('templateContent').innerHTML = `
-                    ${thinkingHtml}
-                    <button class="copy-btn" onclick="copyTemplate()" id="copyBtn">📋 Copy</button>
-                    <div class="template-display">${formattedTemplate}</div>
+                    <div class="button-group">
+                        <button class="aws-button aws-button-primary" onclick="validateTemplate()" id="validateBtn">
+                            Validate Template
+                        </button>
+                        <button class="aws-button aws-button-secondary" onclick="copyTemplate()">
+                            Copy Template
+                        </button>
+                    </div>
+                    <div id="editor-container"></div>
+                    <div id="validationResult"></div>
                 `;
+                
+                require(['vs/editor/editor.main'], function() {
+                    editor = monaco.editor.create(document.getElementById('editor-container'), {
+                        value: currentTemplate,
+                        language: 'yaml',
+                        theme: 'vs',
+                        automaticLayout: true,
+                        minimap: { enabled: false },
+                        scrollBeyondLastLine: false
+                    });
+                });
                 
             } catch (error) {
                 alert('Error: ' + error.message);
                 console.error(error);
-                
-                // Show error in all tabs
-                const errorHtml = `<div class="error">❌ ${error.message}</div>`;
-                document.getElementById('architectureContent').innerHTML = errorHtml;
-                document.getElementById('costContent').innerHTML = errorHtml;
-                document.getElementById('templateContent').innerHTML = errorHtml;
-                document.getElementById('summaryContent').innerHTML = errorHtml;
             } finally {
                 sendBtn.disabled = false;
-                sendBtn.textContent = 'Send';
+                sendBtn.textContent = 'Generate';
             }
         }
         
-        function switchTabByName(tabName) {
-            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+        async function validateTemplate() {
+            const validateBtn = document.getElementById('validateBtn');
+            validateBtn.disabled = true;
+            validateBtn.textContent = 'Validating...';
             
-            const tabs = ['architecture', 'cost', 'template', 'summary'];
-            const index = tabs.indexOf(tabName);
-            if (index >= 0) {
-                document.querySelectorAll('.tab')[index].classList.add('active');
-                document.getElementById(tabName).classList.add('active');
+            try {
+                const template = editor.getValue();
+                
+                const result = await callMcpToolWs('validate_cfn_template', {
+                    template_body: template
+                });
+                
+                const resultDiv = document.getElementById('validationResult');
+                
+                if (result.success && result.valid) {
+                    resultDiv.innerHTML = `
+                        <div class="success-banner">
+                            ✅ Template is valid!
+                            ${result.capabilities && result.capabilities.length > 0 
+                                ? `<p>Required capabilities: ${result.capabilities.join(', ')}</p>` 
+                                : ''}
+                        </div>
+                    `;
+                    isValidated = true;
+                    document.getElementById('provisioningMenu').classList.remove('disabled');
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="error-banner">
+                            ❌ ${result.error || 'Template validation failed'}
+                        </div>
+                    `;
+                    isValidated = false;
+                }
+            } catch (error) {
+                document.getElementById('validationResult').innerHTML = `
+                    <div class="error-banner">❌ Error: ${error.message}</div>
+                `;
+            } finally {
+                validateBtn.disabled = false;
+                validateBtn.textContent = 'Validate Template';
             }
-        }
-        
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-        
-        function formatYamlAsJson(yaml) {
-            // Syntax highlight YAML/JSON
-            return escapeHtml(yaml)
-                .replace(/^(\s*)([a-zA-Z_][a-zA-Z0-9_]*):(.*)$/gm, '$1<span class="json-key">$2</span>:$3')
-                .replace(/'([^']*)'/g, '<span class="json-string">\'$1\'</span>')
-                .replace(/"([^"]*)"/g, '<span class="json-string">"$1"</span>')
-                .replace(/\b(true|false)\b/g, '<span class="json-boolean">$1</span>')
-                .replace(/\b(\d+)\b/g, '<span class="json-number">$1</span>');
-        }
-        
-        function formatTextResponse(text) {
-            // Format text responses with syntax highlighting
-            return escapeHtml(text)
-                .replace(/\n/g, '<br>')
-                .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #79c0ff;">$1</strong>')
-                .replace(/\*(.*?)\*/g, '<em style="color: #a5d6ff;">$1</em>')
-                .replace(/`([^`]+)`/g, '<code style="background: #161b22; padding: 0.2rem 0.4rem; border-radius: 4px; color: #a5d6ff;">$1</code>')
-                .replace(/^(#{1,6})\s+(.+)$/gm, (match, hashes, title) => {
-                    const level = hashes.length;
-                    return `<h${level} style="color: #667eea; margin: 1rem 0 0.5rem 0;">${title}</h${level}>`;
-                })
-                .replace(/^(\d+\.)\s+(.+)$/gm, '<span style="color: #79c0ff;">$1</span> $2')
-                .replace(/^[-*]\s+(.+)$/gm, '<span style="color: #79c0ff;">•</span> $1');
         }
         
         function copyTemplate() {
-            navigator.clipboard.writeText(currentTemplate);
-            const btn = document.getElementById('copyBtn');
-            btn.textContent = '✅ Copied!';
-            setTimeout(() => {
-                btn.textContent = '📋 Copy';
-            }, 2000);
+            const template = editor.getValue();
+            navigator.clipboard.writeText(template);
+            alert('✅ Template copied to clipboard!');
         }
         
         // Handle Enter key
         document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('promptInput').addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                if (e.key === 'Enter' && e.ctrlKey) {
                     e.preventDefault();
                     generateInfrastructure();
                 }

@@ -27,6 +27,57 @@ def get_bedrock_client():
 
 
 @mcp.tool()
+def generate_architecture_overview(prompt: str) -> dict:
+    """
+    Generate a text-based architecture overview from requirements.
+    Returns markdown summary of what will be built and how.
+    """
+    try:
+        bedrock = get_bedrock_client()
+        
+        system_prompt = """You are an AWS Solutions Architect. Analyze requirements and create clear architecture overviews.
+
+Provide:
+1. What we're building (high-level summary)
+2. Key components and their purpose
+3. How components interact
+4. Architecture patterns used
+5. AWS services selected and why
+
+Use clear, concise markdown format."""
+
+        user_message = f"""Analyze these requirements and create an architecture overview:
+
+{prompt}
+
+Provide a clear summary of:
+- What we're building
+- Key AWS services and components
+- How they work together
+- Architecture patterns and best practices"""
+
+        response = bedrock.invoke_model(
+            modelId='us.anthropic.claude-3-5-sonnet-20241022-v2:0',
+            body=json.dumps({
+                'anthropic_version': 'bedrock-2023-05-31',
+                'max_tokens': 2048,
+                'system': system_prompt,
+                'messages': [{'role': 'user', 'content': user_message}]
+            })
+        )
+        
+        response_body = json.loads(response['body'].read())
+        overview = response_body['content'][0]['text']
+        
+        return {
+            'success': True,
+            'overview': overview
+        }
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+@mcp.tool()
 def build_cfn_template(prompt: str, format: str = "yaml") -> dict:
     """
     Build a CloudFormation template from a natural language prompt using Claude.

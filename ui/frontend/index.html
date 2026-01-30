@@ -854,7 +854,7 @@
             
             try {
                 // Step 1: Generate CloudFormation Template
-                document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 1/4: Generating CloudFormation template...</div>';
+                document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 1/5: Generating CloudFormation template...</div>';
                 
                 const templateResult = await callMcpToolWs('build_cfn_template', {
                     prompt: prompt,
@@ -867,48 +867,30 @@
                 
                 currentTemplate = templateResult.template;
                 
-                // Step 2: Generate Architecture Diagram
-                document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 2/4: Creating professional architecture diagram...</div>';
+                // Step 2: Generate Architecture Overview (text-based)
+                document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 2/5: Analyzing architecture...</div>';
                 
                 const archResult = await callMcpToolWs('generate_architecture_diagram', {
                     template_body: currentTemplate
                 });
                 
-                if (archResult.success && archResult.image) {
-                    // Display the professional diagram image
-                    document.getElementById('diagramCanvas').innerHTML = `
-                        <image href="data:image/png;base64,${archResult.image}" 
-                               x="10" y="10" width="95%" height="95%" 
-                               preserveAspectRatio="xMidYMid meet"/>
-                    `;
-                    
-                    // Show success message in Resources tab
+                if (archResult.success) {
                     document.getElementById('architectureContent').innerHTML = `
                         <div class="success-banner">
-                            <h3>✅ Architecture Diagram Generated</h3>
-                            <p>Professional AWS architecture diagram created with ${archResult.resources_count} resources</p>
-                            <p style="margin-top: 0.5rem; font-size: 0.9rem;">Switch to the <strong>Canvas</strong> tab to view the visual diagram.</p>
+                            <h3>✅ Architecture Analysis Complete</h3>
+                            <p>CloudFormation template generated with ${archResult.resources_count || 'multiple'} resources</p>
                         </div>
                         <div class="markdown-content">
                             <h2>CloudFormation Template</h2>
                             <pre><code>${currentTemplate}</code></pre>
                         </div>
                     `;
-                } else {
-                    // Fallback if diagram generation fails
-                    document.getElementById('architectureContent').innerHTML = `
-                        <div class="error-banner">
-                            <h3>⚠️ Diagram Generation Failed</h3>
-                            <p>${archResult.error || 'Unknown error'}</p>
-                            <p style="margin-top: 0.5rem;">Template was generated successfully. View it in the Template tab.</p>
-                        </div>
-                    `;
                 }
                 
                 switchTabByName('architecture');
                 
-                // Step 3: Cost
-                document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Step 3/4: Analyzing cost optimization...</div>';
+                // Step 3: Cost Optimization
+                document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Step 3/5: Analyzing cost optimization...</div>';
                 const costResult = await callMcpToolWs('analyze_cost_optimization', {
                     template_body: currentTemplate
                 });
@@ -919,8 +901,8 @@
                     `;
                 }
                 
-                // Step 4: Well-Architected
-                document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Step 4/4: Performing Well-Architected review...</div>';
+                // Step 4: Well-Architected Review
+                document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Step 4/5: Performing Well-Architected review...</div>';
                 const reviewResult = await callMcpToolWs('well_architected_review', {
                     template_body: currentTemplate
                 });
@@ -932,9 +914,8 @@
                 }
                 
                 // Step 5: Display Template in Monaco Editor
-                document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Preparing template editor...</div>';
+                document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 5/5: Preparing template editor...</div>';
                 
-                // Create Monaco editor
                 document.getElementById('templateContent').innerHTML = `
                     <div class="button-group">
                         <button class="aws-button aws-button-primary" onclick="validateTemplate()" id="validateBtn">
@@ -958,6 +939,39 @@
                         scrollBeyondLastLine: false
                     });
                 });
+                
+                // Step 6: Generate Professional Diagram (after everything else)
+                if (archResult.success && archResult.image) {
+                    document.getElementById('diagramCanvas').innerHTML = `
+                        <text x="50%" y="50%" text-anchor="middle" fill="#545b64" font-size="16">
+                            Generating professional diagram...
+                        </text>
+                    `;
+                    
+                    // This happens in background, doesn't block UI
+                    setTimeout(async () => {
+                        try {
+                            const finalDiagramResult = await callMcpToolWs('generate_architecture_diagram', {
+                                template_body: currentTemplate
+                            });
+                            
+                            if (finalDiagramResult.success && finalDiagramResult.image) {
+                                document.getElementById('diagramCanvas').innerHTML = `
+                                    <image href="data:image/png;base64,${finalDiagramResult.image}" 
+                                           x="10" y="10" width="95%" height="95%" 
+                                           preserveAspectRatio="xMidYMid meet"/>
+                                `;
+                            }
+                        } catch (e) {
+                            console.error('Diagram generation failed:', e);
+                            document.getElementById('diagramCanvas').innerHTML = `
+                                <text x="50%" y="50%" text-anchor="middle" fill="#d13212" font-size="14">
+                                    Diagram generation failed. View resources in the Resources tab.
+                                </text>
+                            `;
+                        }
+                    }, 100);
+                }
                 
             } catch (error) {
                 alert('Error: ' + error.message);

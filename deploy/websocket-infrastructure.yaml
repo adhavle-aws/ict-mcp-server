@@ -126,7 +126,6 @@ Resources:
                   headers={
                       'Content-Type': 'application/json',
                       'Accept': 'application/json, text/event-stream',
-                      'Mcp-Session-Id': f'{tool_name}-{arguments.get("prompt", "")[:20]}'
                   }
               )
               

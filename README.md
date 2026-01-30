@@ -14,17 +14,120 @@ AI-powered infrastructure design platform that transforms natural language into 
 ## Architecture
 
 ```
-User → WebSocket API → Lambda → AgentCore Runtime (Container)
-                                        ↓
-                                  MCP Server (6 Tools)
-                                        ↓
-                            1. build_cfn_template
-                            2. generate_architecture_diagram ⭐ NEW
-                            3. validate_cfn_template
-                            4. analyze_cost_optimization
-                            5. well_architected_review
-                            6. provision_cfn_stack
+┌─────────────────────────────────────────────────────────────────┐
+│                         User Interface                           │
+│                    (AWS Console-style Web UI)                    │
+│  • Natural language input                                        │
+│  • 4 tabs: Architecture (Canvas/Resources), Cost, Template,     │
+│    Well-Architected Review                                       │
+│  • Professional diagram display with AWS icons                   │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ WebSocket (WSS)
+                         │ No timeout limits
+                         │
+┌────────────────────────▼────────────────────────────────────────┐
+│              API Gateway (WebSocket API)                         │
+│  • Endpoint: z832i481e5.execute-api.us-east-1.amazonaws.com    │
+│  • Protocol: WebSocket                                          │
+│  • Routes: $connect, $default, $disconnect                      │
+│  • Real-time bidirectional communication                        │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ Invokes
+                         │
+┌────────────────────────▼────────────────────────────────────────┐
+│              Lambda Function (WebSocket Handler)                 │
+│  • Name: cfn-builder-websocket                                  │
+│  • Runtime: Python 3.11                                         │
+│  • Timeout: 600 seconds (10 minutes)                            │
+│  • Memory: 512 MB                                               │
+│  • Security: NOT publicly accessible                            │
+│  • Function: Async processing + AWS SigV4 signing               │
+│  • Returns immediately, processes in background thread          │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ HTTPS + SigV4
+                         │ IAM Authentication
+                         │
+┌────────────────────────▼────────────────────────────────────────┐
+│           AgentCore Runtime (MCP Server Container)               │
+│  • ARN: mcp_server-VpWbdyCLTH                                   │
+│  • Protocol: MCP (Model Context Protocol)                       │
+│  • Transport: Streamable HTTP                                   │
+│  • Authentication: AWS IAM (SigV4)                              │
+│  • Container: Python 3.13 + GraphViz                            │
+│  • Session Management: Automatic                                │
+│  • Observability: CloudWatch + X-Ray                            │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         │ 6 MCP Tools
+                         │
+┌────────────────────────▼────────────────────────────────────────┐
+│                    MCP Tools Layer                               │
+│                                                                  │
+│  1. build_cfn_template                                          │
+│     • Input: Natural language prompt                            │
+│     • Uses: Claude Sonnet 3.5 (Bedrock)                        │
+│     • Output: CloudFormation YAML/JSON                          │
+│     • Time: 5-10 seconds                                        │
+│                                                                  │
+│  2. generate_architecture_diagram ⭐ NEW                         │
+│     • Input: CloudFormation template                            │
+│     • Uses: Python diagrams + GraphViz                          │
+│     • Output: Professional PNG with AWS icons (base64)          │
+│     • Time: 2-5 seconds                                         │
+│                                                                  │
+│  3. validate_cfn_template                                       │
+│     • Input: CloudFormation template                            │
+│     • Uses: AWS CloudFormation ValidateTemplate API             │
+│     • Output: Validation results + required capabilities        │
+│     • Time: 1-2 seconds                                         │
+│                                                                  │
+│  4. analyze_cost_optimization                                   │
+│     • Input: CloudFormation template                            │
+│     • Uses: Claude Sonnet 3.5 (Bedrock)                        │
+│     • Output: Cost drivers + optimization recommendations       │
+│     • Time: 5-10 seconds                                        │
+│                                                                  │
+│  5. well_architected_review                                     │
+│     • Input: CloudFormation template                            │
+│     • Uses: Claude Sonnet 3.5 (Bedrock)                        │
+│     • Output: 6-pillar review + recommendations                 │
+│     • Time: 10-15 seconds                                       │
+│                                                                  │
+│  6. provision_cfn_stack                                         │
+│     • Input: Stack name + template                              │
+│     • Uses: AWS CloudFormation CreateStack/UpdateStack          │
+│     • Output: Stack ID + status                                 │
+│     • Time: 2-5 seconds                                         │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         │ boto3 SDK
+                         │
+┌────────────────────────▼────────────────────────────────────────┐
+│                      AWS Services                                │
+│  • Amazon Bedrock (Claude Sonnet 3.5)                           │
+│  • AWS CloudFormation                                           │
+└──────────────────────────────────────────────────────────────────┘
 ```
+
+## Key Architecture Benefits
+
+### WebSocket Design
+- ✅ **No Timeout Limits** - Browser to Lambda connection stays open
+- ✅ **Real-time Updates** - Progress messages during long operations
+- ✅ **Bidirectional** - Server can push updates to client
+- ✅ **Async Processing** - Lambda returns immediately, processes in background
+
+### Security Model
+- ✅ **Lambda Not Public** - No function URL, only API Gateway can invoke
+- ✅ **IAM Authentication** - AgentCore requires SigV4 signed requests
+- ✅ **Credentials Server-Side** - Browser never sees AWS credentials
+- ✅ **Least Privilege** - Minimal IAM permissions throughout
+
+### Scalability
+- ✅ **AgentCore Auto-Scales** - Serverless container platform
+- ✅ **Lambda Concurrent** - Handles multiple connections
+- ✅ **WebSocket Persistent** - Efficient connection reuse
+- ✅ **No Cold Starts** - AgentCore keeps containers warm
 
 ## Quick Start
 

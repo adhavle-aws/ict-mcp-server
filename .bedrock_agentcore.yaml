@@ -32,7 +32,7 @@ agents:
     bedrock_agentcore:
       agent_id: mcp_server-VpWbdyCLTH
       agent_arn: arn:aws:bedrock-agentcore:us-east-1:905767016260:runtime/mcp_server-VpWbdyCLTH
-      agent_session_id: null
+      agent_session_id: 1875ea0a-9cb2-417f-ba98-9d20f7b79058
     codebuild:
       project_name: bedrock-agentcore-mcp_server-builder
       execution_role: arn:aws:iam::905767016260:role/AmazonBedrockAgentCoreSDKCodeBuild-us-east-1-f6e3659767

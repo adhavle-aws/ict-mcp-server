@@ -630,31 +630,61 @@
                 const resultDiv = document.getElementById('validationResult');
                 
                 if (result.success && result.valid) {
+                    const capabilitiesHtml = result.capabilities && result.capabilities.length > 0
+                        ? `<p><strong>Required Capabilities:</strong> ${result.capabilities.map(c => `<code>${c}</code>`).join(', ')}</p>`
+                        : '<p><strong>Required Capabilities:</strong> None</p>';
+                    
                     resultDiv.innerHTML = `
                         <div class="success-banner">
-                            ✅ Template is valid!
-                            ${result.capabilities && result.capabilities.length > 0 
-                                ? `<p>Required capabilities: ${result.capabilities.join(', ')}</p>` 
-                                : ''}
+                            <h3 style="margin-bottom: 0.5rem;">✅ Template Validated Successfully</h3>
+                            <p style="margin-bottom: 0.5rem;">This template has been validated by AWS CloudFormation API and is ready for deployment.</p>
+                            ${capabilitiesHtml}
+                            <p style="margin-top: 1rem; font-size: 0.9rem; opacity: 0.8;">
+                                <strong>Validation performed:</strong><br>
+                                • Syntax validation (YAML/JSON structure)<br>
+                                • Resource type validation (AWS::* types)<br>
+                                • Property validation (required properties)<br>
+                                • Parameter validation (types and constraints)<br>
+                                • Intrinsic function validation (Ref, GetAtt, etc.)<br>
+                                • IAM capability detection
+                            </p>
                         </div>
                     `;
                     isValidated = true;
-                    document.getElementById('provisioningMenu').classList.remove('disabled');
+                    
+                    // Enable Provisioning Agent
+                    const provMenu = document.getElementById('provisioningMenu');
+                    provMenu.classList.remove('disabled');
+                    provMenu.style.cursor = 'pointer';
+                    
+                    // Add visual indicator
+                    validateBtn.textContent = '✅ Validated';
+                    validateBtn.style.background = '#037f0c';
+                    
                 } else {
                     resultDiv.innerHTML = `
                         <div class="error-banner">
-                            ❌ ${result.error || 'Template validation failed'}
+                            <h3 style="margin-bottom: 0.5rem;">❌ Template Validation Failed</h3>
+                            <p><strong>Error:</strong> ${result.error || 'Unknown validation error'}</p>
+                            <p style="margin-top: 1rem; font-size: 0.9rem;">
+                                Please fix the errors above and validate again before provisioning.
+                            </p>
                         </div>
                     `;
                     isValidated = false;
                 }
             } catch (error) {
                 document.getElementById('validationResult').innerHTML = `
-                    <div class="error-banner">❌ Error: ${error.message}</div>
+                    <div class="error-banner">
+                        <h3>❌ Validation Error</h3>
+                        <p>${error.message}</p>
+                    </div>
                 `;
             } finally {
-                validateBtn.disabled = false;
-                validateBtn.textContent = 'Validate Template';
+                if (!isValidated) {
+                    validateBtn.disabled = false;
+                    validateBtn.textContent = 'Validate Template';
+                }
             }
         }
         

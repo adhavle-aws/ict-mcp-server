@@ -276,6 +276,31 @@
             border-top: 1px solid var(--aws-border-gray);
         }
         
+        .example-prompts {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        
+        .example-btn {
+            padding: 0.4rem 1rem;
+            background: white;
+            border: 1px solid var(--aws-border-gray);
+            border-radius: 2px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: var(--aws-text-primary);
+        }
+        
+        .example-btn:hover {
+            background: var(--aws-bg-secondary);
+            border-color: var(--aws-link-blue);
+            color: var(--aws-link-blue);
+        }
+        
         .input-group {
             display: flex;
             gap: 1rem;
@@ -500,6 +525,13 @@
             </div>
             
             <div class="input-area">
+                <div class="example-prompts">
+                    <span style="font-size: 0.9rem; color: var(--aws-text-secondary); margin-right: 1rem;">Quick Examples:</span>
+                    <button class="example-btn" onclick="useExample('3tier')">3-Tier Web App</button>
+                    <button class="example-btn" onclick="useExample('serverless')">Serverless API</button>
+                    <button class="example-btn" onclick="useExample('data')">Data Pipeline</button>
+                    <button class="example-btn" onclick="useExample('microservices')">Microservices</button>
+                </div>
                 <div class="input-group">
                     <textarea 
                         id="promptInput" 
@@ -844,6 +876,47 @@
                     if (i !== index) content.classList.remove('active');
                 });
             }
+        }
+        
+        function useExample(type) {
+            const examples = {
+                '3tier': `Create a highly available 3-tier web application in us-east-1 with:
+- Web tier: Application Load Balancer with Auto Scaling EC2 instances
+- Application tier: EC2 instances in private subnets with Auto Scaling
+- Database tier: RDS PostgreSQL with Multi-AZ deployment
+- Network: VPC with public and private subnets across 2 AZs
+- Security: WAF, Security Groups, and NACLs
+- Monitoring: CloudWatch dashboards and alarms`,
+                
+                'serverless': `Create a serverless REST API in us-east-1 with:
+- API Gateway for HTTP endpoints
+- Lambda functions for business logic
+- DynamoDB for data storage
+- Cognito for user authentication
+- S3 for static content
+- CloudFront for global content delivery
+- All resources should be highly available and cost-optimized`,
+                
+                'data': `Create a data processing pipeline in us-east-1 with:
+- S3 buckets for data ingestion and storage
+- Lambda functions for data transformation
+- Kinesis Data Streams for real-time processing
+- Glue for ETL jobs
+- Athena for data querying
+- QuickSight for visualization
+- Step Functions for workflow orchestration`,
+                
+                'microservices': `Create a microservices architecture in us-east-1 with:
+- ECS Fargate for containerized services
+- Application Load Balancer for routing
+- API Gateway for external access
+- DynamoDB and RDS for data persistence
+- ElastiCache for caching
+- SQS and SNS for async communication
+- CloudWatch for monitoring and logging`
+            };
+            
+            document.getElementById('promptInput').value = examples[type];
         }
         
         async function generateInfrastructure() {

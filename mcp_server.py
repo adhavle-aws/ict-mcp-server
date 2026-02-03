@@ -141,7 +141,7 @@ Be specific and provide concrete reasoning for every choice."""
 
         response = call_bedrock_with_retry(
             bedrock,
-            'us.anthropic.claude-3-5-sonnet-20241022-v2:0',
+            'anthropic.claude-sonnet-4-5-20250929-v1:0',
             {
                 'anthropic_version': 'bedrock-2023-05-31',
                 'max_tokens': 3072,
@@ -196,7 +196,7 @@ Return ONLY the CloudFormation template, nothing else."""
         # Call Claude via Bedrock with retry
         response = call_bedrock_with_retry(
             bedrock,
-            'us.anthropic.claude-3-5-sonnet-20241022-v2:0',
+            'anthropic.claude-sonnet-4-5-20250929-v1:0',
             {
                 'anthropic_version': 'bedrock-2023-05-31',
                 'max_tokens': 4096,
@@ -537,7 +537,7 @@ IMPORTANT: Reference the specific architecture components and Well-Architected f
 
         response = call_bedrock_with_retry(
             bedrock,
-            'us.anthropic.claude-3-5-sonnet-20241022-v2:0',
+            'anthropic.claude-sonnet-4-5-20250929-v1:0',
             {
                 'anthropic_version': 'bedrock-2023-05-31',
                 'max_tokens': 4096,
@@ -602,7 +602,7 @@ IMPORTANT: Reference the specific services, tiers, and components mentioned in t
 
         response = call_bedrock_with_retry(
             bedrock,
-            'us.anthropic.claude-3-5-sonnet-20241022-v2:0',
+            'anthropic.claude-sonnet-4-5-20250929-v1:0',
             {
                 'anthropic_version': 'bedrock-2023-05-31',
                 'max_tokens': 4096,

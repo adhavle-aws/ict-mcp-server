@@ -1,0 +1,1208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AWS Architect AI - Infrastructure Design Platform</title>
+    
+    <!-- Marked.js for markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <!-- Monaco Editor for CFN template -->
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+    
+    <style>
+        /* AWS Console Color Scheme */
+        :root {
+            --aws-squid-ink: #232f3e;
+            --aws-smile-orange: #ff9900;
+            --aws-dark-blue: #16191f;
+            --aws-light-gray: #eaeded;
+            --aws-border-gray: #d5dbdb;
+            --aws-text-primary: #16191f;
+            --aws-text-secondary: #545b64;
+            --aws-bg-primary: #ffffff;
+            --aws-bg-secondary: #fafafa;
+            --aws-link-blue: #0073bb;
+            --aws-success-green: #037f0c;
+            --aws-error-red: #d13212;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Amazon Ember', 'Helvetica Neue', Roboto, Arial, sans-serif;
+            background: var(--aws-bg-secondary);
+            color: var(--aws-text-primary);
+        }
+        
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+        
+        /* AWS Console Sidebar */
+        .sidebar {
+            width: 240px;
+            background: var(--aws-squid-ink);
+            color: white;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .sidebar-header {
+            padding: 1.5rem 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .sidebar-header h2 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: white;
+            margin-bottom: 0.25rem;
+        }
+        
+        .sidebar-header p {
+            font-size: 0.75rem;
+            color: rgba(255, 255, 255, 0.6);
+        }
+        
+        .sidebar-menu {
+            flex: 1;
+            padding: 0.5rem 0;
+        }
+        
+        .menu-item {
+            padding: 0.75rem 1rem;
+            cursor: pointer;
+            transition: background 0.2s;
+            border-left: 3px solid transparent;
+            color: rgba(255, 255, 255, 0.8);
+        }
+        
+        .menu-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        
+        .menu-item.active {
+            background: rgba(255, 153, 0, 0.1);
+            border-left-color: var(--aws-smile-orange);
+            color: white;
+        }
+        
+        .menu-item.disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        
+        .menu-item-title {
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 0.25rem;
+        }
+        
+        .menu-item-desc {
+            font-size: 0.75rem;
+            opacity: 0.7;
+        }
+        
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: var(--aws-bg-primary);
+        }
+        
+        .header {
+            background: var(--aws-squid-ink);
+            color: white;
+            padding: 1rem 2rem;
+            border-bottom: 4px solid var(--aws-smile-orange);
+        }
+        
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 400;
+        }
+        
+        /* AWS Console Tabs */
+        .tabs {
+            display: flex;
+            background: var(--aws-bg-secondary);
+            border-bottom: 1px solid var(--aws-border-gray);
+            padding: 0 2rem;
+        }
+        
+        .tab {
+            padding: 1rem 1.5rem;
+            background: transparent;
+            border: none;
+            color: var(--aws-text-secondary);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        
+        .tab:hover {
+            color: var(--aws-text-primary);
+        }
+        
+        .tab.active {
+            color: var(--aws-link-blue);
+            border-bottom-color: var(--aws-link-blue);
+        }
+        
+        .tab-content {
+            display: none;
+            padding: 2rem;
+            overflow-y: auto;
+            flex: 1;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        /* Markdown Content */
+        .markdown-content {
+            max-width: 1200px;
+            line-height: 1.6;
+            text-align: left;
+        }
+        
+        .markdown-content h1,
+        .markdown-content h2,
+        .markdown-content h3 {
+            color: var(--aws-text-primary);
+            margin: 1.5rem 0 1rem 0;
+            font-weight: 600;
+        }
+        
+        .markdown-content h1 { font-size: 1.75rem; }
+        .markdown-content h2 { font-size: 1.5rem; }
+        .markdown-content h3 { font-size: 1.25rem; }
+        
+        .markdown-content p {
+            margin-bottom: 1rem;
+            color: var(--aws-text-primary);
+        }
+        
+        .markdown-content ul,
+        .markdown-content ol {
+            margin-left: 2rem;
+            margin-bottom: 1rem;
+        }
+        
+        .markdown-content li {
+            margin-bottom: 0.5rem;
+        }
+        
+        .markdown-content code {
+            background: #f4f4f4;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        
+        .markdown-content pre {
+            background: #f4f4f4;
+            padding: 1rem;
+            border-radius: 4px;
+            overflow-x: auto;
+            margin-bottom: 1rem;
+        }
+        
+        .markdown-content pre code {
+            background: none;
+            padding: 0;
+        }
+        
+        /* Monaco Editor Container */
+        #editor-container {
+            height: 500px;
+            border: 1px solid var(--aws-border-gray);
+            margin-bottom: 1rem;
+        }
+        
+        /* AWS Buttons */
+        .aws-button {
+            padding: 0.5rem 1.5rem;
+            border: none;
+            border-radius: 2px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+        
+        .aws-button-primary {
+            background: var(--aws-smile-orange);
+            color: white;
+        }
+        
+        .aws-button-primary:hover:not(:disabled) {
+            background: #ec7211;
+        }
+        
+        .aws-button-secondary {
+            background: white;
+            color: var(--aws-text-primary);
+            border: 1px solid var(--aws-border-gray);
+        }
+        
+        .aws-button-secondary:hover:not(:disabled) {
+            background: var(--aws-bg-secondary);
+        }
+        
+        .aws-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        /* Input Area */
+        .input-area {
+            padding: 1.5rem 2rem;
+            background: var(--aws-bg-secondary);
+            border-top: 1px solid var(--aws-border-gray);
+        }
+        
+        .example-prompts {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        
+        .example-btn {
+            padding: 0.4rem 1rem;
+            background: white;
+            border: 1px solid var(--aws-border-gray);
+            border-radius: 2px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: var(--aws-text-primary);
+        }
+        
+        .example-btn:hover {
+            background: var(--aws-bg-secondary);
+            border-color: var(--aws-link-blue);
+            color: var(--aws-link-blue);
+        }
+        
+        .input-group {
+            display: flex;
+            gap: 1rem;
+            align-items: flex-start;
+        }
+        
+        textarea {
+            flex: 1;
+            padding: 0.75rem;
+            background: white;
+            border: 1px solid var(--aws-border-gray);
+            border-radius: 2px;
+            color: var(--aws-text-primary);
+            font-family: inherit;
+            font-size: 0.9rem;
+            resize: vertical;
+            min-height: 80px;
+        }
+        
+        textarea:focus {
+            outline: none;
+            border-color: var(--aws-link-blue);
+            box-shadow: 0 0 0 1px var(--aws-link-blue);
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            color: var(--aws-text-secondary);
+        }
+        
+        .error-banner {
+            background: #fef6f6;
+            border: 1px solid var(--aws-error-red);
+            border-radius: 2px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            color: var(--aws-error-red);
+        }
+        
+        .success-banner {
+            background: #f2f8f2;
+            border: 1px solid var(--aws-success-green);
+            border-radius: 2px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            color: var(--aws-success-green);
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        
+        /* Architecture Container */
+        .architecture-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        
+        .architecture-toolbar {
+            display: flex;
+            background: var(--aws-bg-secondary);
+            border-bottom: 1px solid var(--aws-border-gray);
+            padding: 0;
+        }
+        
+        .arch-tab {
+            padding: 0.75rem 1.5rem;
+            background: transparent;
+            border: none;
+            color: var(--aws-text-secondary);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        
+        .arch-tab:hover {
+            color: var(--aws-text-primary);
+            background: rgba(0, 0, 0, 0.02);
+        }
+        
+        .arch-tab.active {
+            color: var(--aws-link-blue);
+            border-bottom-color: var(--aws-link-blue);
+            background: white;
+        }
+        
+        .arch-view {
+            flex: 1;
+            overflow: auto;
+            background: white;
+        }
+        
+        /* SVG Canvas */
+        #diagramCanvas {
+            background: #fafafa;
+            border: 1px solid var(--aws-border-gray);
+        }
+        
+        .resource-node {
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .resource-node:hover .resource-box {
+            stroke: var(--aws-smile-orange);
+            stroke-width: 2;
+        }
+        
+        .resource-box {
+            fill: white;
+            stroke: var(--aws-border-gray);
+            stroke-width: 1;
+            rx: 4;
+        }
+        
+        .resource-icon-bg {
+            fill: var(--aws-smile-orange);
+        }
+        
+        .resource-label {
+            font-size: 12px;
+            fill: var(--aws-text-primary);
+            font-weight: 600;
+        }
+        
+        .resource-type {
+            font-size: 10px;
+            fill: var(--aws-text-secondary);
+        }
+        
+        .connection-line {
+            stroke: #545b64;
+            stroke-width: 2;
+            fill: none;
+            marker-end: url(#arrowhead);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h2>Architect AI</h2>
+                <p>AI-Powered Infrastructure Design</p>
+            </div>
+            
+            <div class="sidebar-menu">
+                <div class="menu-item active" id="onboardingMenu">
+                    <div class="menu-item-title">Design Agent</div>
+                    <div class="menu-item-desc">Architect and analyze AWS solutions</div>
+                </div>
+                
+                <div class="menu-item disabled" id="provisioningMenu">
+                    <div class="menu-item-title">Deployment Agent</div>
+                    <div class="menu-item-desc">Deploy validated CloudFormation stacks</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="main-content">
+            <div class="header">
+                <h1>AWS Architect AI</h1>
+            </div>
+            
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('architecture')">Architecture Overview</button>
+                <button class="tab" onclick="switchTab('review')">Well-Architected Review</button>
+                <button class="tab" onclick="switchTab('cost')">Cost Optimization</button>
+                <button class="tab" onclick="switchTab('template')">CloudFormation Template</button>
+            </div>
+            
+            <div id="architecture" class="tab-content active">
+                <div id="architectureContent" class="loading">
+                    Enter your infrastructure requirements below to begin
+                </div>
+            </div>
+            
+            <div id="review" class="tab-content">
+                <div id="reviewContent" class="loading">
+                    Generate architecture to see Well-Architected Framework review
+                </div>
+            </div>
+            
+            <div id="cost" class="tab-content">
+                <div id="costContent" class="loading">
+                    Generate architecture to see cost optimization recommendations
+                </div>
+            </div>
+            
+            <div id="template" class="tab-content">
+                <div class="architecture-container">
+                    <div class="architecture-toolbar">
+                        <button class="arch-tab active" id="templateViewBtn" onclick="switchTemplateView('yaml')">Template</button>
+                        <button class="arch-tab" id="diagramViewBtn" onclick="switchTemplateView('diagram')">Diagram</button>
+                    </div>
+                    
+                    <div id="yamlView" class="arch-view">
+                        <div id="templateContent">
+                            <div class="loading">Generate architecture to create CloudFormation template</div>
+                        </div>
+                    </div>
+                    
+                    <div id="diagramView" class="arch-view" style="display: none;">
+                        <svg id="diagramCanvas" width="100%" height="600">
+                            <defs>
+                                <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                                    <polygon points="0 0, 10 3, 0 6" fill="#545b64" />
+                                </marker>
+                            </defs>
+                            <text x="50%" y="50%" text-anchor="middle" fill="#545b64" font-size="16">
+                                Generate architecture to see visual diagram
+                            </text>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="input-area">
+                <div class="example-prompts">
+                    <span style="font-size: 0.9rem; color: var(--aws-text-secondary); margin-right: 1rem;">Quick Examples:</span>
+                    <button class="example-btn" onclick="useExample('3tier')">3-Tier Web App</button>
+                    <button class="example-btn" onclick="useExample('serverless')">Serverless API</button>
+                    <button class="example-btn" onclick="useExample('data')">Data Pipeline</button>
+                    <button class="example-btn" onclick="useExample('microservices')">Microservices</button>
+                </div>
+                <div class="input-group">
+                    <textarea 
+                        id="promptInput" 
+                        placeholder="Describe your infrastructure requirements...&#10;&#10;Example: Create a 3-tier web application with VPC, ALB, ECS, and RDS in us-east-1. It should be highly available and secure within a private network."
+                    ></textarea>
+                    <button class="aws-button aws-button-primary" onclick="generateInfrastructure()" id="sendBtn">
+                        Generate
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const WS_URL = 'wss://z832i481e5.execute-api.us-east-1.amazonaws.com/prod';
+        let currentTemplate = '';
+        let ws = null;
+        let requestCallbacks = new Map();
+        let editor = null;
+        let isValidated = false;
+        
+        // Initialize Monaco Editor
+        require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' }});
+        
+        // Initialize WebSocket
+        function initWebSocket() {
+            ws = new WebSocket(WS_URL);
+            
+            ws.onopen = () => {
+                console.log('✅ WebSocket connected');
+            };
+            
+            ws.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                console.log('📨 Received:', message);
+                
+                if (message.type === 'connected') {
+                    return;
+                }
+                
+                const requestId = message.requestId;
+                if (requestId && requestCallbacks.has(requestId)) {
+                    const callbacks = requestCallbacks.get(requestId);
+                    
+                    if (message.type === 'progress') {
+                        callbacks.onProgress?.(message);
+                    } else if (message.type === 'response') {
+                        callbacks.onComplete?.(message.data);
+                        requestCallbacks.delete(requestId);
+                    } else if (message.type === 'error') {
+                        callbacks.onError?.(message.error);
+                        requestCallbacks.delete(requestId);
+                    }
+                }
+            };
+            
+            ws.onerror = (error) => {
+                console.error('❌ WebSocket error:', error);
+            };
+            
+            ws.onclose = () => {
+                console.log('🔌 WebSocket closed, reconnecting...');
+                setTimeout(initWebSocket, 2000);
+            };
+        }
+        
+        initWebSocket();
+        
+        function callMcpToolWs(toolName, args) {
+            return new Promise((resolve, reject) => {
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                    reject(new Error('WebSocket not connected'));
+                    return;
+                }
+                
+                const requestId = Date.now().toString();
+                
+                requestCallbacks.set(requestId, {
+                    onProgress: (data) => {
+                        console.log('Progress:', data);
+                    },
+                    onComplete: (data) => {
+                        resolve(data);
+                    },
+                    onError: (error) => {
+                        reject(new Error(error));
+                    }
+                });
+                
+                ws.send(JSON.stringify({
+                    id: requestId,
+                    tool: toolName,
+                    arguments: args
+                }));
+            });
+        }
+        
+        function switchTemplateView(viewName) {
+            // Update toolbar buttons
+            document.querySelectorAll('.arch-tab').forEach(btn => btn.classList.remove('active'));
+            if (viewName === 'diagram') {
+                document.getElementById('diagramViewBtn').classList.add('active');
+            } else {
+                document.getElementById('templateViewBtn').classList.add('active');
+            }
+            
+            // Update views
+            document.getElementById('diagramView').style.display = viewName === 'diagram' ? 'block' : 'none';
+            document.getElementById('yamlView').style.display = viewName === 'yaml' ? 'block' : 'none';
+        }
+        
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.getElementById(tabName).classList.add('active');
+        }
+        
+        function switchArchView(viewName) {
+            // Update toolbar buttons
+            document.querySelectorAll('.arch-tab').forEach(btn => btn.classList.remove('active'));
+            if (viewName === 'diagram') {
+                document.getElementById('diagramViewBtn').classList.add('active');
+            } else {
+                document.getElementById('textViewBtn').classList.add('active');
+            }
+            
+            // Update views
+            document.getElementById('diagramView').style.display = viewName === 'diagram' ? 'block' : 'none';
+            document.getElementById('textView').style.display = viewName === 'text' ? 'block' : 'none';
+        }
+        
+        function renderArchitectureDiagram(template) {
+            const svg = document.getElementById('diagramCanvas');
+            svg.innerHTML = `
+                <defs>
+                    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                        <polygon points="0 0, 10 3, 0 6" fill="#545b64" />
+                    </marker>
+                </defs>
+            `;
+            
+            // Parse template to extract resources
+            const resources = parseTemplateResources(template);
+            
+            if (resources.length === 0) {
+                svg.innerHTML += `<text x="50%" y="50%" text-anchor="middle" fill="#545b64" font-size="16">No resources found in template</text>`;
+                return;
+            }
+            
+            // Layout resources in a grid
+            const cols = Math.ceil(Math.sqrt(resources.length));
+            const nodeWidth = 140;
+            const nodeHeight = 80;
+            const spacing = 60;
+            const startX = 100;
+            const startY = 80;
+            
+            resources.forEach((resource, index) => {
+                const col = index % cols;
+                const row = Math.floor(index / cols);
+                const x = startX + col * (nodeWidth + spacing);
+                const y = startY + row * (nodeHeight + spacing);
+                
+                createResourceNode(svg, resource, x, y, nodeWidth, nodeHeight);
+            });
+            
+            // Draw connections
+            drawConnections(svg, resources, cols, nodeWidth, nodeHeight, spacing, startX, startY);
+        }
+        
+        function parseTemplateResources(template) {
+            const resources = [];
+            
+            try {
+                // Try to parse YAML-like structure
+                const lines = template.split('\n');
+                let inResources = false;
+                let currentResource = null;
+                
+                for (const line of lines) {
+                    if (line.trim() === 'Resources:') {
+                        inResources = true;
+                        continue;
+                    }
+                    
+                    if (inResources) {
+                        // Check for resource name (indented, ends with :)
+                        const resourceMatch = line.match(/^  (\w+):/);
+                        if (resourceMatch) {
+                            if (currentResource) {
+                                resources.push(currentResource);
+                            }
+                            currentResource = { name: resourceMatch[1], type: 'Unknown' };
+                        }
+                        
+                        // Check for Type property
+                        const typeMatch = line.match(/^\s+Type:\s*(.+)/);
+                        if (typeMatch && currentResource) {
+                            currentResource.type = typeMatch[1].trim();
+                        }
+                        
+                        // Stop at next top-level section
+                        if (line.match(/^[A-Z]/) && !line.startsWith('  ')) {
+                            if (currentResource) {
+                                resources.push(currentResource);
+                            }
+                            break;
+                        }
+                    }
+                }
+                
+                if (currentResource) {
+                    resources.push(currentResource);
+                }
+            } catch (e) {
+                console.error('Error parsing template:', e);
+            }
+            
+            return resources;
+        }
+        
+        function createResourceNode(svg, resource, x, y, width, height) {
+            const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            g.setAttribute('class', 'resource-node');
+            g.setAttribute('data-resource', resource.name);
+            
+            // Main box
+            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            rect.setAttribute('class', 'resource-box');
+            rect.setAttribute('x', x);
+            rect.setAttribute('y', y);
+            rect.setAttribute('width', width);
+            rect.setAttribute('height', height);
+            g.appendChild(rect);
+            
+            // Icon background
+            const iconBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            iconBg.setAttribute('class', 'resource-icon-bg');
+            iconBg.setAttribute('x', x + 10);
+            iconBg.setAttribute('y', y + 10);
+            iconBg.setAttribute('width', 30);
+            iconBg.setAttribute('height', 30);
+            iconBg.setAttribute('rx', 4);
+            g.appendChild(iconBg);
+            
+            // Icon text
+            const icon = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            icon.setAttribute('x', x + 25);
+            icon.setAttribute('y', y + 32);
+            icon.setAttribute('text-anchor', 'middle');
+            icon.setAttribute('fill', 'white');
+            icon.setAttribute('font-size', '16');
+            icon.setAttribute('font-weight', 'bold');
+            icon.textContent = getResourceIcon(resource.type);
+            g.appendChild(icon);
+            
+            // Resource name
+            const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            label.setAttribute('class', 'resource-label');
+            label.setAttribute('x', x + 10);
+            label.setAttribute('y', y + 55);
+            label.textContent = truncateText(resource.name, 16);
+            g.appendChild(label);
+            
+            // Resource type
+            const type = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            type.setAttribute('class', 'resource-type');
+            type.setAttribute('x', x + 10);
+            type.setAttribute('y', y + 70);
+            type.textContent = truncateText(getShortType(resource.type), 18);
+            g.appendChild(type);
+            
+            svg.appendChild(g);
+        }
+        
+        function drawConnections(svg, resources, cols, nodeWidth, nodeHeight, spacing, startX, startY) {
+            // Draw simple connections between adjacent resources
+            for (let i = 0; i < resources.length - 1; i++) {
+                const col1 = i % cols;
+                const row1 = Math.floor(i / cols);
+                const x1 = startX + col1 * (nodeWidth + spacing) + nodeWidth;
+                const y1 = startY + row1 * (nodeHeight + spacing) + nodeHeight / 2;
+                
+                const col2 = (i + 1) % cols;
+                const row2 = Math.floor((i + 1) / cols);
+                const x2 = startX + col2 * (nodeWidth + spacing);
+                const y2 = startY + row2 * (nodeHeight + spacing) + nodeHeight / 2;
+                
+                // Only draw horizontal connections
+                if (row1 === row2) {
+                    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    line.setAttribute('class', 'connection-line');
+                    line.setAttribute('x1', x1);
+                    line.setAttribute('y1', y1);
+                    line.setAttribute('x2', x2);
+                    line.setAttribute('y2', y2);
+                    svg.insertBefore(line, svg.firstChild.nextSibling);
+                }
+            }
+        }
+        
+        function getResourceIcon(type) {
+            const iconMap = {
+                'AWS::Lambda::Function': 'λ',
+                'AWS::ApiGatewayV2::Api': 'API',
+                'AWS::ApiGateway::RestApi': 'API',
+                'AWS::DynamoDB::Table': 'DB',
+                'AWS::S3::Bucket': 'S3',
+                'AWS::RDS::DBInstance': 'RDS',
+                'AWS::EC2::Instance': 'EC2',
+                'AWS::ECS::Service': 'ECS',
+                'AWS::ElasticLoadBalancingV2::LoadBalancer': 'ALB',
+                'AWS::Cognito::UserPool': '👤',
+                'AWS::SNS::Topic': '📢',
+                'AWS::SQS::Queue': '📬',
+                'AWS::IAM::Role': '🔐',
+            };
+            
+            return iconMap[type] || '📦';
+        }
+        
+        function getShortType(type) {
+            return type.replace('AWS::', '').replace('::', ' ');
+        }
+        
+        function truncateText(text, maxLength) {
+            return text.length > maxLength ? text.substring(0, maxLength - 3) + '...' : text;
+        }
+        
+        function switchTabByName(tabName) {
+            const tabs = ['architecture', 'cost', 'review', 'template'];
+            const index = tabs.indexOf(tabName);
+            if (index >= 0) {
+                document.querySelectorAll('.tab')[index].classList.add('active');
+                document.querySelectorAll('.tab').forEach((tab, i) => {
+                    if (i !== index) tab.classList.remove('active');
+                });
+                document.getElementById(tabName).classList.add('active');
+                document.querySelectorAll('.tab-content').forEach((content, i) => {
+                    if (i !== index) content.classList.remove('active');
+                });
+            }
+        }
+        
+        function useExample(type) {
+            const examples = {
+                '3tier': `Create a highly available 3-tier web application in us-east-1 with:
+- Web tier: Application Load Balancer with Auto Scaling EC2 instances
+- Application tier: EC2 instances in private subnets with Auto Scaling
+- Database tier: RDS PostgreSQL with Multi-AZ deployment
+- Network: VPC with public and private subnets across 2 AZs
+- Security: WAF, Security Groups, and NACLs
+- Monitoring: CloudWatch dashboards and alarms`,
+                
+                'serverless': `Create a serverless REST API in us-east-1 with:
+- API Gateway for HTTP endpoints
+- Lambda functions for business logic
+- DynamoDB for data storage
+- Cognito for user authentication
+- S3 for static content
+- CloudFront for global content delivery
+- All resources should be highly available and cost-optimized`,
+                
+                'data': `Create a data processing pipeline in us-east-1 with:
+- S3 buckets for data ingestion and storage
+- Lambda functions for data transformation
+- Kinesis Data Streams for real-time processing
+- Glue for ETL jobs
+- Athena for data querying
+- QuickSight for visualization
+- Step Functions for workflow orchestration`,
+                
+                'microservices': `Create a microservices architecture in us-east-1 with:
+- ECS Fargate for containerized services
+- Application Load Balancer for routing
+- API Gateway for external access
+- DynamoDB and RDS for data persistence
+- ElastiCache for caching
+- SQS and SNS for async communication
+- CloudWatch for monitoring and logging`
+            };
+            
+            document.getElementById('promptInput').value = examples[type];
+        }
+        
+        async function generateInfrastructure() {
+            const prompt = document.getElementById('promptInput').value;
+            const sendBtn = document.getElementById('sendBtn');
+            
+            if (!prompt) {
+                alert('Please enter infrastructure requirements');
+                return;
+            }
+            
+            sendBtn.disabled = true;
+            sendBtn.textContent = 'Generating...';
+            isValidated = false;
+            document.getElementById('provisioningMenu').classList.add('disabled');
+            
+            // Show loading
+            document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 1/4: Analyzing requirements and designing architecture...</div>';
+            document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Waiting for architecture...</div>';
+            document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Waiting for cost analysis...</div>';
+            document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Waiting for review...</div>';
+            
+            try {
+                // Step 1: Architecture Overview (text-based summary)
+                document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 1/5: Analyzing requirements and designing architecture...</div>';
+                
+                const archResult = await callMcpToolWs('generate_architecture_overview', {
+                    prompt: prompt
+                });
+                
+                if (!archResult.success) {
+                    throw new Error(archResult.error);
+                }
+                
+                const architectureOverview = archResult.overview;
+                
+                document.getElementById('architectureContent').innerHTML = `
+                    <div class="markdown-content">${marked.parse(architectureOverview)}</div>
+                `;
+                
+                switchTabByName('architecture');
+                
+                // Step 2: Well-Architected Review (using architecture overview)
+                document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Step 2/5: Performing Well-Architected Framework review...</div>';
+                const reviewResult = await callMcpToolWs('well_architected_review', {
+                    prompt: architectureOverview
+                });
+                
+                if (!reviewResult.success) {
+                    throw new Error(reviewResult.error);
+                }
+                
+                const wellArchitectedReview = reviewResult.review;
+                
+                document.getElementById('reviewContent').innerHTML = `
+                    <div class="markdown-content">${marked.parse(wellArchitectedReview)}</div>
+                `;
+                
+                // Step 3: Cost Optimization (using well-architected review)
+                document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Step 3/5: Analyzing cost optimization...</div>';
+                const costResult = await callMcpToolWs('analyze_cost_optimization', {
+                    prompt: wellArchitectedReview
+                });
+                
+                if (!costResult.success) {
+                    throw new Error(costResult.error);
+                }
+                
+                document.getElementById('costContent').innerHTML = `
+                    <div class="markdown-content">${marked.parse(costResult.analysis)}</div>
+                `;
+                
+                // Step 4: Generate CloudFormation Template (using architecture overview)
+                document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 4/5: Generating CloudFormation template...</div>';
+                
+                const templateResult = await callMcpToolWs('build_cfn_template', {
+                    prompt: architectureOverview,
+                    format: 'yaml'
+                });
+                
+                if (!templateResult.success) {
+                    throw new Error(templateResult.error);
+                }
+                
+                currentTemplate = templateResult.template;
+                
+                // Display template in Monaco Editor
+                document.getElementById('templateContent').innerHTML = `
+                    <div class="button-group">
+                        <button class="aws-button aws-button-primary" onclick="validateTemplate()" id="validateBtn">
+                            Validate Template
+                        </button>
+                        <button class="aws-button aws-button-secondary" onclick="copyTemplate()">
+                            Copy Template
+                        </button>
+                    </div>
+                    <div id="editor-container"></div>
+                    <div id="validationResult"></div>
+                `;
+                
+                require(['vs/editor/editor.main'], function() {
+                    editor = monaco.editor.create(document.getElementById('editor-container'), {
+                        value: currentTemplate,
+                        language: 'yaml',
+                        theme: 'vs',
+                        automaticLayout: true,
+                        minimap: { enabled: false },
+                        scrollBeyondLastLine: false
+                    });
+                });
+                
+                // Step 5: Generate Professional Diagram (in background)
+                document.getElementById('diagramCanvas').innerHTML = `
+                    <text x="50%" y="50%" text-anchor="middle" fill="#545b64" font-size="16">
+                        ⏳ Step 5/5: Generating professional diagram...
+                    </text>
+                `;
+                
+                setTimeout(async () => {
+                    try {
+                        const diagramResult = await callMcpToolWs('generate_architecture_diagram', {
+                            template_body: currentTemplate
+                        });
+                        
+                        if (diagramResult.success && diagramResult.image) {
+                            document.getElementById('diagramCanvas').innerHTML = `
+                                <image href="data:image/png;base64,${diagramResult.image}" 
+                                       x="10" y="10" width="95%" height="95%" 
+                                       preserveAspectRatio="xMidYMid meet"/>
+                            `;
+                        } else {
+                            document.getElementById('diagramCanvas').innerHTML = `
+                                <text x="50%" y="50%" text-anchor="middle" fill="#d13212" font-size="14">
+                                    Diagram generation failed. View template in the Template tab.
+                                </text>
+                            `;
+                        }
+                    } catch (e) {
+                        console.error('Diagram generation failed:', e);
+                        document.getElementById('diagramCanvas').innerHTML = `
+                            <text x="50%" y="50%" text-anchor="middle" fill="#d13212" font-size="14">
+                                Diagram generation failed. View template in the Template tab.
+                            </text>
+                        `;
+                    }
+                }, 100);
+            } catch (error) {
+                alert('Error: ' + error.message);
+                console.error(error);
+            } finally {
+                sendBtn.disabled = false;
+                sendBtn.textContent = 'Generate';
+            }
+        }
+        
+        async function generateDiagram() {
+            if (!currentTemplate) {
+                alert('Please generate a template first');
+                return;
+            }
+            
+            document.getElementById('diagramCanvas').innerHTML = `
+                <text x="50%" y="50%" text-anchor="middle" fill="#545b64" font-size="16">
+                    ⏳ Generating professional diagram...
+                </text>
+            `;
+            
+            // Switch to diagram view
+            switchTemplateView('diagram');
+            
+            try {
+                const diagramResult = await callMcpToolWs('generate_architecture_diagram', {
+                    template_body: currentTemplate
+                });
+                
+                if (diagramResult.success && diagramResult.image) {
+                    document.getElementById('diagramCanvas').innerHTML = `
+                        <image href="data:image/png;base64,${diagramResult.image}" 
+                               x="10" y="10" width="95%" height="95%" 
+                               preserveAspectRatio="xMidYMid meet"/>
+                    `;
+                } else {
+                    document.getElementById('diagramCanvas').innerHTML = `
+                        <text x="50%" y="50%" text-anchor="middle" fill="#d13212" font-size="14">
+                            ${diagramResult.error || 'Diagram generation failed'}
+                        </text>
+                    `;
+                }
+            } catch (e) {
+                console.error('Diagram generation failed:', e);
+                document.getElementById('diagramCanvas').innerHTML = `
+                    <text x="50%" y="50%" text-anchor="middle" fill="#d13212" font-size="14">
+                        Error: ${e.message}
+                    </text>
+                `;
+            }
+        }
+        
+        async function validateTemplate() {
+            const validateBtn = document.getElementById('validateBtn');
+            validateBtn.disabled = true;
+            validateBtn.textContent = 'Validating...';
+            
+            try {
+                const template = editor.getValue();
+                
+                const result = await callMcpToolWs('validate_cfn_template', {
+                    template_body: template
+                });
+                
+                const resultDiv = document.getElementById('validationResult');
+                
+                if (result.success && result.valid) {
+                    const capabilitiesHtml = result.capabilities && result.capabilities.length > 0
+                        ? `<p><strong>Required Capabilities:</strong> ${result.capabilities.map(c => `<code>${c}</code>`).join(', ')}</p>`
+                        : '<p><strong>Required Capabilities:</strong> None</p>';
+                    
+                    resultDiv.innerHTML = `
+                        <div class="success-banner">
+                            <h3 style="margin-bottom: 0.5rem;">✅ Template Validated Successfully</h3>
+                            <p style="margin-bottom: 0.5rem;">This template has been validated by AWS CloudFormation API and is ready for deployment.</p>
+                            ${capabilitiesHtml}
+                            <p style="margin-top: 1rem; font-size: 0.9rem; opacity: 0.8;">
+                                <strong>Validation performed:</strong><br>
+                                • Syntax validation (YAML/JSON structure)<br>
+                                • Resource type validation (AWS::* types)<br>
+                                • Property validation (required properties)<br>
+                                • Parameter validation (types and constraints)<br>
+                                • Intrinsic function validation (Ref, GetAtt, etc.)<br>
+                                • IAM capability detection
+                            </p>
+                        </div>
+                    `;
+                    isValidated = true;
+                    
+                    // Enable Provisioning Agent
+                    const provMenu = document.getElementById('provisioningMenu');
+                    provMenu.classList.remove('disabled');
+                    provMenu.style.cursor = 'pointer';
+                    
+                    // Add visual indicator
+                    validateBtn.textContent = '✅ Validated';
+                    validateBtn.style.background = '#037f0c';
+                    
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="error-banner">
+                            <h3 style="margin-bottom: 0.5rem;">❌ Template Validation Failed</h3>
+                            <p><strong>Error:</strong> ${result.error || 'Unknown validation error'}</p>
+                            <p style="margin-top: 1rem; font-size: 0.9rem;">
+                                Please fix the errors above and validate again before provisioning.
+                            </p>
+                        </div>
+                    `;
+                    isValidated = false;
+                }
+            } catch (error) {
+                document.getElementById('validationResult').innerHTML = `
+                    <div class="error-banner">
+                        <h3>❌ Validation Error</h3>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+            } finally {
+                if (!isValidated) {
+                    validateBtn.disabled = false;
+                    validateBtn.textContent = 'Validate Template';
+                }
+            }
+        }
+        
+        function copyTemplate() {
+            const template = editor.getValue();
+            navigator.clipboard.writeText(template);
+            alert('✅ Template copied to clipboard!');
+        }
+        
+        // Handle Enter key
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('promptInput').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && e.ctrlKey) {
+                    e.preventDefault();
+                    generateInfrastructure();
+                }
+            });
+        });
+    </script>
+</body>
+</html>

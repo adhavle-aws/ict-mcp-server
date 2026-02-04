@@ -474,7 +474,6 @@
             <div class="tabs">
                 <button class="tab active" onclick="switchTab('architecture')">Architecture Overview</button>
                 <button class="tab" onclick="switchTab('review')">Well-Architected Review</button>
-                <button class="tab" onclick="switchTab('cost')">Cost Optimization</button>
                 <button class="tab" onclick="switchTab('template')">CloudFormation Template</button>
             </div>
             
@@ -490,11 +489,7 @@
                 </div>
             </div>
             
-            <div id="cost" class="tab-content">
-                <div id="costContent" class="loading">
-                    Generate architecture to see cost optimization recommendations
-                </div>
-            </div>
+
             
             <div id="template" class="tab-content">
                 <div class="architecture-container">
@@ -864,7 +859,7 @@
         }
         
         function switchTabByName(tabName) {
-            const tabs = ['architecture', 'cost', 'review', 'template'];
+            const tabs = ['architecture', 'review', 'template'];
             const index = tabs.indexOf(tabName);
             if (index >= 0) {
                 document.querySelectorAll('.tab')[index].classList.add('active');
@@ -934,9 +929,8 @@
             document.getElementById('provisioningMenu').classList.add('disabled');
             
             // Show loading
-            document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 1/4: Analyzing requirements and designing architecture...</div>';
-            document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Waiting for architecture...</div>';
-            document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Waiting for cost analysis...</div>';
+            document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 1/3: Analyzing requirements and designing architecture...</div>';
+            document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Waiting for architecture...</div>';
             document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Waiting for review...</div>';
             
             try {
@@ -975,22 +969,8 @@
                     <div class="markdown-content">${marked.parse(wellArchitectedReview)}</div>
                 `;
                 
-                // Step 3: Cost Optimization (using well-architected review)
-                document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Step 3/5: Analyzing cost optimization...</div>';
-                const costResult = await callMcpToolWs('analyze_cost_optimization', {
-                    prompt: wellArchitectedReview
-                });
-                
-                if (!costResult.success) {
-                    throw new Error(costResult.error);
-                }
-                
-                document.getElementById('costContent').innerHTML = `
-                    <div class="markdown-content">${marked.parse(costResult.analysis)}</div>
-                `;
-                
-                // Step 4: Generate CloudFormation Template (using architecture overview)
-                document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 4/5: Generating CloudFormation template...</div>';
+                // Step 3: Generate CloudFormation Template (using architecture overview)
+                document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 3/3: Generating CloudFormation template...</div>';
                 
                 const templateResult = await callMcpToolWs('build_cfn_template', {
                     prompt: architectureOverview,

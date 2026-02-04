@@ -531,9 +531,7 @@
         function determineToolFromMessage(message) {
             const lower = message.toLowerCase();
             
-            if (lower.includes('cost') || lower.includes('price') || lower.includes('expensive')) {
-                return 'analyze_cost_optimization';
-            } else if (lower.includes('review') || lower.includes('best practice') || lower.includes('well-architected')) {
+            if (lower.includes('review') || lower.includes('best practice') || lower.includes('well-architected')) {
                 return 'well_architected_review';
             } else if (lower.includes('validate') || lower.includes('check template')) {
                 return 'validate_cfn_template';

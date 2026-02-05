@@ -4,10 +4,6 @@ import boto3
 import yaml
 import json
 import os
-import subprocess
-import tempfile
-import base64
-from pathlib import Path
 
 # CRITICAL: stateless_http=True is required for AgentCore
 mcp = FastMCP(host="0.0.0.0", stateless_http=True)
@@ -57,94 +53,28 @@ def generate_architecture_overview(prompt: str) -> dict:
     try:
         bedrock = get_bedrock_client()
         
-        system_prompt = """You are a Senior AWS Solutions Architect. Analyze requirements and create comprehensive architecture overviews with clear reasoning for every decision.
+        system_prompt = """Senior AWS Solutions Architect. Create architecture overviews with clear reasoning.
 
-Your response must include:
+Include:
 1. Executive Summary (2-3 sentences)
-2. Architecture Diagram (ASCII art with AWS service icons/emojis)
-3. Component Breakdown (each service with purpose and rationale)
-4. Design Decisions (why you chose each service/pattern)
-5. Data Flow (how requests move through the system)
-6. Security Considerations (specific to this architecture)
+2. Architecture Diagram (ASCII with AWS emojis: 🌐 ALB, 🖥️ EC2, 📦 S3, 🗄️ RDS/DynamoDB, λ Lambda, 🔐 IAM, 🌍 VPC)
+3. Component Breakdown (service + purpose + rationale)
+4. Design Decisions (why each choice)
+5. Data Flow
+6. Security Considerations"""
 
-Use emojis/icons for AWS services:
-- 🌐 ALB/CloudFront
-- 🖥️ EC2
-- 📦 S3
-- 🗄️ RDS/DynamoDB
-- λ Lambda
-- 🔐 IAM/Security Groups
-- 🌍 VPC
-- 🔄 Auto Scaling
+        user_message = f"""Create architecture overview for:
 
-Be specific and provide reasoning for every architectural choice."""
-
-        user_message = f"""Analyze these requirements and create a comprehensive architecture overview:
-
-REQUIREMENTS:
 {prompt}
 
-Provide:
-
-## Executive Summary
-Brief overview of what we're building and why
-
-## Architecture Diagram
-Create an ASCII diagram using AWS service icons/emojis showing:
-- All tiers/layers
-- AWS services
-- Data flow with arrows
-- Network boundaries
-
-Example format:
-```
-Internet
-   ↓
-🌐 Application Load Balancer
-   ↓
-🖥️ Web Tier (EC2 Auto Scaling)
-   ↓
-🖥️ App Tier (EC2 Auto Scaling)
-   ↓
-🗄️ Database Tier (RDS Multi-AZ)
-```
-
-## Component Breakdown
-For each AWS service:
-- **Service Name** (icon)
-- Purpose: What it does
-- Configuration: Key settings
-- Rationale: WHY we chose this service/configuration
-
-## Design Decisions
-Explain the reasoning behind:
-- Architecture pattern chosen (3-tier, serverless, etc.)
-- Service selections (why EC2 vs Lambda, why RDS vs DynamoDB)
-- Network design (public/private subnets, Multi-AZ)
-- Scaling strategy
-- Security approach
-
-## Data Flow
-Step-by-step request flow:
-1. User request arrives at...
-2. ALB routes to...
-3. Web tier processes...
-etc.
-
-## Security Architecture
-- Network isolation strategy
-- Access control approach
-- Encryption decisions
-- Compliance considerations
-
-Be specific and provide concrete reasoning for every choice."""
+Provide specific reasoning for every architectural choice."""
 
         response = call_bedrock_with_retry(
             bedrock,
             'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
             {
                 'anthropic_version': 'bedrock-2023-05-31',
-                'max_tokens': 3072,
+                'max_tokens': 2048,  # Reduced for faster response
                 'system': system_prompt,
                 'messages': [{'role': 'user', 'content': user_message}]
             }
@@ -382,189 +312,6 @@ def provision_cfn_stack(stack_name: str, template_body: str, capabilities: list 
             'error': str(e)
         }
 
-
-@mcp.tool()
-def generate_architecture_diagram(template_body: str) -> dict:
-    """
-    Generate a professional visual architecture diagram from CloudFormation template 
-    using AWS Diagram MCP Server (Python diagrams package with official AWS icons).
-    
-    Returns base64-encoded PNG image that can be displayed in the UI.
-    """
-    try:
-        print(f"Diagram generation - template length: {len(template_body)}")
-        print(f"Template starts with: {template_body[:100]}")
-        
-        # Parse CloudFormation template to extract resources
-        resources = parse_cfn_resources(template_body)
-        
-        print(f"Found {len(resources)} resources")
-        
-        if not resources:
-            return {
-                'success': False,
-                'error': f'No resources found in template. Template length: {len(template_body)}, starts with: {template_body[:50]}'
-            }
-        
-        # Generate Python code for diagrams package
-        diagram_code = generate_diagram_code(resources, template_body)
-        
-        # Execute diagram generation
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Write Python code to temp file
-            code_file = Path(tmpdir) / "diagram.py"
-            code_file.write_text(diagram_code)
-            
-            # Execute the diagram code
-            result = subprocess.run(
-                ['python3', str(code_file)],
-                cwd=tmpdir,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            
-            if result.returncode != 0:
-                return {
-                    'success': False,
-                    'error': f'Diagram generation failed: {result.stderr}'
-                }
-            
-            # Find generated PNG file
-            png_files = list(Path(tmpdir).glob('*.png'))
-            if not png_files:
-                return {
-                    'success': False,
-                    'error': 'No diagram image generated'
-                }
-            
-            # Read and encode image as base64
-            with open(png_files[0], 'rb') as f:
-                image_data = base64.b64encode(f.read()).decode('utf-8')
-            
-            return {
-                'success': True,
-                'image': image_data,
-                'format': 'png',
-                'encoding': 'base64',
-                'resources_count': len(resources)
-            }
-            
-    except subprocess.TimeoutExpired:
-        return {'success': False, 'error': 'Diagram generation timed out'}
-    except Exception as e:
-        return {'success': False, 'error': str(e)}
-
-
-def parse_cfn_resources(template_body: str) -> list:
-    """Parse CloudFormation template to extract resources"""
-    resources = []
-    
-    try:
-        print(f"Template type: {type(template_body)}")
-        print(f"Template first 200 chars: {repr(template_body[:200])}")
-        
-        # Try parsing as YAML first
-        try:
-            template = yaml.safe_load(template_body)
-            print(f"Parsed as YAML. Keys: {list(template.keys())}")
-        except Exception as yaml_error:
-            print(f"YAML parsing failed: {yaml_error}")
-            # Try JSON
-            template = json.loads(template_body)
-            print(f"Parsed as JSON. Keys: {list(template.keys())}")
-        
-        if 'Resources' in template:
-            print(f"Found Resources section with {len(template['Resources'])} resources")
-            for name, resource in template['Resources'].items():
-                resources.append({
-                    'name': name,
-                    'type': resource.get('Type', 'Unknown'),
-                    'properties': resource.get('Properties', {})
-                })
-        else:
-            print(f"No Resources section found. Template keys: {list(template.keys())}")
-    except Exception as e:
-        print(f"Error parsing template: {e}")
-        import traceback
-        traceback.print_exc()
-    
-    print(f"Returning {len(resources)} resources")
-    return resources
-
-
-def generate_diagram_code(resources: list, template_body: str) -> str:
-    """Generate Python code using diagrams package for AWS architecture"""
-    
-    # Map CFN resource types to diagrams package classes
-    resource_map = {
-        'AWS::Lambda::Function': ('compute', 'Lambda'),
-        'AWS::ApiGatewayV2::Api': ('network', 'APIGateway'),
-        'AWS::ApiGateway::RestApi': ('network', 'APIGateway'),
-        'AWS::DynamoDB::Table': ('database', 'Dynamodb'),
-        'AWS::S3::Bucket': ('storage', 'S3'),
-        'AWS::RDS::DBInstance': ('database', 'RDS'),
-        'AWS::EC2::Instance': ('compute', 'EC2'),
-        'AWS::ECS::Service': ('compute', 'ECS'),
-        'AWS::ECS::TaskDefinition': ('compute', 'ECS'),
-        'AWS::ElasticLoadBalancingV2::LoadBalancer': ('network', 'ELB'),
-        'AWS::Cognito::UserPool': ('security', 'Cognito'),
-        'AWS::SNS::Topic': ('integration', 'SNS'),
-        'AWS::SQS::Queue': ('integration', 'SQS'),
-        'AWS::IAM::Role': ('security', 'IAM'),
-        'AWS::CloudFront::Distribution': ('network', 'CloudFront'),
-        'AWS::Route53::RecordSet': ('network', 'Route53'),
-        'AWS::ElastiCache::CacheCluster': ('database', 'ElastiCache'),
-        'AWS::StepFunctions::StateMachine': ('integration', 'StepFunctions'),
-        'AWS::EventBridge::Rule': ('integration', 'Eventbridge'),
-        'AWS::Kinesis::Stream': ('analytics', 'KinesisDataStreams'),
-    }
-    
-    # Generate imports
-    imports = set()
-    for resource in resources:
-        res_type = resource['type']
-        if res_type in resource_map:
-            category, class_name = resource_map[res_type]
-            imports.add(f"from diagrams.aws.{category} import {class_name}")
-    
-    # Build diagram code
-    code = """from diagrams import Diagram, Cluster, Edge
-from diagrams.aws.compute import Lambda, EC2, ECS
-from diagrams.aws.network import APIGateway, ELB, CloudFront, Route53
-from diagrams.aws.database import Dynamodb, RDS, ElastiCache
-from diagrams.aws.storage import S3
-from diagrams.aws.security import Cognito, IAM
-from diagrams.aws.integration import SNS, SQS, StepFunctions, Eventbridge
-from diagrams.aws.analytics import KinesisDataStreams
-
-with Diagram("AWS Architecture", show=False, direction="LR"):
-"""
-    
-    # Add resources
-    for i, resource in enumerate(resources):
-        res_type = resource['type']
-        res_name = resource['name']
-        
-        if res_type in resource_map:
-            category, class_name = resource_map[res_type]
-            # Truncate long names
-            display_name = res_name[:20] + '...' if len(res_name) > 20 else res_name
-            code += f'    {res_name.lower().replace("-", "_")} = {class_name}("{display_name}")\n'
-        else:
-            # Use generic compute for unknown types
-            display_name = res_name[:20] + '...' if len(res_name) > 20 else res_name
-            code += f'    {res_name.lower().replace("-", "_")} = EC2("{display_name}")\n'
-    
-    # Add simple connections (chain resources)
-    if len(resources) > 1:
-        code += "\n    # Connections\n"
-        for i in range(len(resources) - 1):
-            curr = resources[i]['name'].lower().replace("-", "_")
-            next_res = resources[i + 1]['name'].lower().replace("-", "_")
-            code += f"    {curr} >> {next_res}\n"
-    
-    return code
 
 
 @mcp.tool()

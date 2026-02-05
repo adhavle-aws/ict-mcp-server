@@ -853,7 +853,7 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                         `;
                     }
                     validateBtn.textContent = '✅ Validated';
-                    validateBtn.style.background = var(--aws-success);
+                    validateBtn.style.background = '#037f0c';
                 } else {
                     resultDiv.innerHTML = `
                         <div class="error-banner">

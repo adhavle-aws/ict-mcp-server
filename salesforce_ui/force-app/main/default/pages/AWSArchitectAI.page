@@ -455,7 +455,7 @@
             </div>
             
             <div class="sidebar-menu">
-                <div class="menu-item active" id="onboardingMenu">
+                <div class="menu-item active" id="designMenu" onclick="showPage('design')">
                     <div class="menu-item-title">Design Agent</div>
                     <div class="menu-item-desc">Architect and analyze AWS solutions</div>
                 </div>
@@ -464,10 +464,17 @@
                     <div class="menu-item-title">Deployment Agent</div>
                     <div class="menu-item-desc">Deploy validated CloudFormation stacks</div>
                 </div>
+                
+                <div class="menu-item" id="guideMenu" onclick="showPage('guide')">
+                    <div class="menu-item-title">How-to Guide</div>
+                    <div class="menu-item-desc">Agentforce integration guide</div>
+                </div>
             </div>
         </div>
         
         <div class="main-content">
+            <!-- Design Agent Page -->
+            <div id="designPage">
             <div class="header">
                 <h1>AWS Architect AI</h1>
             </div>
@@ -536,6 +543,138 @@
                     </button>
                 </div>
             </div>
+            </div>
+            <!-- End Design Agent Page -->
+            
+            <!-- How-to Guide Page (hidden by default) -->
+            <div id="guidePage" style="display: none; padding: 2rem; max-width: 900px; margin: 0 auto;">
+                <h1 style="margin-bottom: 1rem;">Agentforce Integration Guide</h1>
+                
+                <div style="background: #f0f8ff; padding: 1rem; border-left: 4px solid #0073bb; margin-bottom: 2rem;">
+                    <strong>📘 Overview:</strong> This guide explains how Salesforce Agentforce agents can invoke the AWS Architect AI to generate CloudFormation templates.
+                </div>
+                
+                <h2>Architecture</h2>
+                <pre style="background: #f5f5f5; padding: 1rem; border-radius: 4px; overflow-x: auto;">
+Agentforce Agent → Apex Action → WebSocket API → AgentCore MCP Server
+                                                      ↓
+                                                  Claude Sonnet 4.5
+                                                      ↓
+                                            CloudFormation Template</pre>
+                
+                <h2>Step 1: Configure Remote Site Settings</h2>
+                <p>In Salesforce Setup → Security → Remote Site Settings, add:</p>
+                <ol>
+                    <li><strong>AWS_WebSocket_API</strong>
+                        <ul>
+                            <li>URL: <code>https://9h32jjkhg3.execute-api.us-east-1.amazonaws.com</code></li>
+                            <li>Active: ✅</li>
+                        </ul>
+                    </li>
+                </ol>
+                
+                <h2>Step 2: Create Apex Action</h2>
+                <p>Create an Apex class that Agentforce can invoke:</p>
+                <pre style="background: #f5f5f5; padding: 1rem; border-radius: 4px; overflow-x: auto;">
+public class AWSArchitectAction {
+    @InvocableMethod(label='Generate AWS Infrastructure' 
+                     description='Generate CloudFormation template from requirements')
+    public static List&lt;Result&gt; generateInfrastructure(List&lt;Request&gt; requests) {
+        Request req = requests[0];
+        
+        // Call WebSocket API
+        String wsUrl = 'wss://9h32jjkhg3.execute-api.us-east-1.amazonaws.com/prod';
+        
+        // Send request
+        Map&lt;String, Object&gt; payload = new Map&lt;String, Object&gt;{
+            'id' => String.valueOf(DateTime.now().getTime()),
+            'tool' => 'build_cfn_template',
+            'arguments' => new Map&lt;String, Object&gt;{
+                'prompt' => req.requirements,
+                'format' => 'yaml'
+            }
+        };
+        
+        // Return result
+        Result result = new Result();
+        result.template = callWebSocket(wsUrl, payload);
+        return new List&lt;Result&gt;{ result };
+    }
+    
+    public class Request {
+        @InvocableVariable(required=true label='Infrastructure Requirements')
+        public String requirements;
+    }
+    
+    public class Result {
+        @InvocableVariable(label='CloudFormation Template')
+        public String template;
+    }
+}</pre>
+                
+                <h2>Step 3: Configure Agentforce Agent</h2>
+                <ol>
+                    <li>Go to Setup → Agents → Your Agent</li>
+                    <li>Add Action: "Generate AWS Infrastructure"</li>
+                    <li>Configure input: Map user request to "Infrastructure Requirements"</li>
+                    <li>Configure output: Return "CloudFormation Template" to user</li>
+                </ol>
+                
+                <h2>Step 4: Test the Integration</h2>
+                <p>User asks Agentforce:</p>
+                <blockquote style="background: #f5f5f5; padding: 1rem; border-left: 4px solid #ff9900; margin: 1rem 0;">
+                    "Create a serverless API with API Gateway, Lambda, and DynamoDB"
+                </blockquote>
+                
+                <p>Agentforce will:</p>
+                <ol>
+                    <li>Recognize this as an infrastructure request</li>
+                    <li>Invoke the "Generate AWS Infrastructure" action</li>
+                    <li>Call the WebSocket API with the requirements</li>
+                    <li>Receive the CloudFormation template</li>
+                    <li>Present it to the user</li>
+                </ol>
+                
+                <h2>Available Tools</h2>
+                <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+                    <tr style="background: #f5f5f5;">
+                        <th style="padding: 0.5rem; text-align: left; border: 1px solid #ddd;">Tool</th>
+                        <th style="padding: 0.5rem; text-align: left; border: 1px solid #ddd;">Input</th>
+                        <th style="padding: 0.5rem; text-align: left; border: 1px solid #ddd;">Output</th>
+                    </tr>
+                    <tr>
+                        <td style="padding: 0.5rem; border: 1px solid #ddd;"><code>generate_architecture_overview</code></td>
+                        <td style="padding: 0.5rem; border: 1px solid #ddd;">prompt (string)</td>
+                        <td style="padding: 0.5rem; border: 1px solid #ddd;">Architecture overview with diagrams</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 0.5rem; border: 1px solid #ddd;"><code>build_cfn_template</code></td>
+                        <td style="padding: 0.5rem; border: 1px solid #ddd;">prompt (string), format (yaml/json)</td>
+                        <td style="padding: 0.5rem; border: 1px solid #ddd;">CloudFormation template</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 0.5rem; border: 1px solid #ddd;"><code>validate_cfn_template</code></td>
+                        <td style="padding: 0.5rem; border: 1px solid #ddd;">template_body (string)</td>
+                        <td style="padding: 0.5rem; border: 1px solid #ddd;">Validation result (auto-fixes errors)</td>
+                    </tr>
+                </table>
+                
+                <h2>Example Agentforce Prompts</h2>
+                <ul>
+                    <li>"Create a serverless API"</li>
+                    <li>"Design a 3-tier web application"</li>
+                    <li>"Build a data pipeline with S3 and Lambda"</li>
+                    <li>"Create a secure VPC with public and private subnets"</li>
+                </ul>
+                
+                <div style="background: #fff3cd; padding: 1rem; border-left: 4px solid #ff9900; margin-top: 2rem;">
+                    <strong>💡 Tip:</strong> Agentforce agents can chain multiple tools together. For example, first generate architecture, then create template, then validate it - all in one conversation!
+                </div>
+                
+                <button class="aws-button aws-button-primary" onclick="showPage('design')" style="margin-top: 2rem;">
+                    Back to Design Agent
+                </button>
+            </div>
         </div>
     </div>
     
@@ -546,6 +685,24 @@
         let requestCallbacks = new Map();
         let editor = null;
         let isValidated = false;
+        
+        // Page navigation
+        function showPage(pageName) {
+            // Hide all pages
+            document.getElementById('designPage').style.display = pageName === 'design' ? 'block' : 'none';
+            document.getElementById('guidePage').style.display = pageName === 'guide' ? 'block' : 'none';
+            
+            // Update menu items
+            document.querySelectorAll('.menu-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            
+            if (pageName === 'design') {
+                document.getElementById('designMenu').classList.add('active');
+            } else if (pageName === 'guide') {
+                document.getElementById('guideMenu').classList.add('active');
+            }
+        }
         
         // Initialize Monaco Editor
         require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' }});
@@ -1202,5 +1359,4 @@
     </script>
 </body>
 </html>
-
 </apex:page>

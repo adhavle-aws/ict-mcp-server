@@ -568,44 +568,27 @@ def well_architected_review(prompt: str = None, template_body: str = None) -> di
         
         bedrock = get_bedrock_client()
         
-        system_prompt = """You are an AWS Well-Architected Framework expert. Review architectures against the 6 pillars and provide specific, actionable recommendations that directly reference the architecture being reviewed.
-
-CRITICAL: Your review must be specific to the architecture provided, not generic best practices. Reference specific components, services, and design decisions mentioned in the architecture."""
+        system_prompt = """AWS Well-Architected expert. Review against 6 pillars with specific recommendations."""
 
         if template_body:
-            user_message = f"""Review this CloudFormation template against AWS Well-Architected Framework:
+            user_message = f"""Review CloudFormation template (6 pillars):
 
 {template_body}
 
-For each pillar, provide:
-1. Assessment of the SPECIFIC resources and configurations in this template
-2. Risks identified in THIS architecture
-3. Recommendations that reference SPECIFIC resources by name
-4. Priority level (High/Medium/Low)
-
-Be specific - reference actual resource names and configurations from the template."""
+For each pillar: Assessment, Risks, Recommendations (High/Medium/Low priority)"""
         elif prompt:
-            user_message = f"""Review this architecture against AWS Well-Architected Framework:
+            user_message = f"""Review architecture (6 pillars):
 
-ARCHITECTURE TO REVIEW:
 {prompt}
 
-For each of the 6 pillars (Operational Excellence, Security, Reliability, Performance Efficiency, Cost Optimization, Sustainability), provide:
-
-1. Assessment: Analyze the SPECIFIC components mentioned (ALB, EC2, RDS, etc.) - not generic advice
-2. Strengths: What this architecture does well
-3. Risks: Specific risks based on the components and design described
-4. Recommendations: Actionable improvements that reference the actual services mentioned
-5. Priority: High/Medium/Low
-
-IMPORTANT: Reference the specific services, tiers, and components mentioned in the architecture. Don't provide generic AWS advice - make it specific to THIS 3-tier application design."""
+For each pillar: Assessment, Strengths, Risks, Recommendations (priority)"""
 
         response = call_bedrock_with_retry(
             bedrock,
             'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
             {
                 'anthropic_version': 'bedrock-2023-05-31',
-                'max_tokens': 4096,
+                'max_tokens': 1500,  # Reduced from 4096
                 'system': system_prompt,
                 'messages': [{'role': 'user', 'content': user_message}]
             }

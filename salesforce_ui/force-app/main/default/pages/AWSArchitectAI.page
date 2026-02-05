@@ -309,6 +309,31 @@
             margin-bottom: 1rem;
         }
         
+        /* Example Buttons */
+        .example-prompts {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        
+        .example-btn {
+            padding: 0.4rem 1rem;
+            background: white;
+            border: 1px solid var(--aws-border);
+            border-radius: 20px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .example-btn:hover {
+            background: #f5f5f5;
+            border-color: var(--aws-blue);
+            color: var(--aws-blue);
+        }
+        
         /* Monaco Editor Container */
         #editor-container {
             height: 600px;
@@ -442,6 +467,15 @@
                 <!-- Input Section -->
                 <div class="input-section">
                     <label for="promptInput">Infrastructure Requirements</label>
+                    
+                    <div class="example-prompts">
+                        <span style="font-size: 0.9rem; color: #666; margin-right: 0.5rem;">Quick Examples:</span>
+                        <button class="example-btn" onclick="useExample('3tier')">3-Tier Web App</button>
+                        <button class="example-btn" onclick="useExample('serverless')">Serverless API</button>
+                        <button class="example-btn" onclick="useExample('data')">Data Pipeline</button>
+                        <button class="example-btn" onclick="useExample('microservices')">Microservices</button>
+                    </div>
+                    
                     <textarea 
                         id="promptInput" 
                         placeholder="Describe your infrastructure requirements...
@@ -878,6 +912,45 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
             const template = editor.getValue();
             navigator.clipboard.writeText(template);
             alert('Template copied to clipboard!');
+        }
+        
+        // Use Example Prompt
+        function useExample(type) {
+            const examples = {
+                '3tier': `Create a highly available 3-tier web application in us-east-1 with:
+- Web tier: Application Load Balancer with Auto Scaling EC2 instances
+- Application tier: EC2 instances in private subnets with Auto Scaling
+- Database tier: RDS PostgreSQL with Multi-AZ deployment
+- Network: VPC with public and private subnets across 2 AZs
+- Security: WAF, Security Groups, and NACLs
+- Monitoring: CloudWatch dashboards and alarms`,
+                
+                'serverless': `Create a serverless REST API in us-east-1 with:
+- API Gateway for HTTP endpoints
+- Lambda functions for business logic
+- DynamoDB for data storage
+- Cognito for user authentication
+- S3 for static content
+- CloudFront for global content delivery`,
+                
+                'data': `Create a data processing pipeline in us-east-1 with:
+- S3 buckets for data ingestion and storage
+- Lambda functions for data transformation
+- Kinesis Data Streams for real-time processing
+- Glue for ETL jobs
+- Athena for data querying
+- Step Functions for workflow orchestration`,
+                
+                'microservices': `Create a microservices architecture in us-east-1 with:
+- ECS Fargate for containerized services
+- Application Load Balancer for routing
+- API Gateway for external access
+- DynamoDB and RDS for data persistence
+- ElastiCache for caching
+- SQS and SNS for async communication`
+            };
+            
+            document.getElementById('promptInput').value = examples[type];
         }
     </script>
 </body>

@@ -475,11 +475,11 @@
         <div class="main-content">
             <!-- Design Agent Page -->
             <div id="designPage">
-            <div class="header">
-                <h1>AWS Architect AI</h1>
-            </div>
+                <div class="header">
+                    <h1>AWS Architect AI</h1>
+                </div>
             
-            <div class="tabs">
+                <div class="tabs">
                 <button class="tab active" onclick="switchTab('architecture')">Architecture Overview</button>
                 <button class="tab" onclick="switchTab('template')">CloudFormation Template</button>
             </div>

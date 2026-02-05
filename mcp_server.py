@@ -101,28 +101,23 @@ def build_cfn_template(prompt: str, format: str = "yaml") -> dict:
         bedrock = get_bedrock_client()
         
         # Create prompt for Claude
-        system_prompt = """You are a CloudFormation expert. Generate valid CloudFormation templates following AWS Well-Architected Framework principles.
+        system_prompt = """CloudFormation expert. Generate VALID templates following AWS Well-Architected principles.
 
-Rules:
-1. Return ONLY valid CloudFormation YAML/JSON
-2. Include AWSTemplateFormatVersion: '2010-09-09'
-3. Use proper resource types and properties
-4. Follow AWS Well-Architected best practices (security, reliability, performance, cost optimization)
-5. Add appropriate resource names and descriptions
-6. Include security best practices (encryption, least privilege, etc.)
-7. Return ONLY the template, no explanations"""
+CRITICAL Rules:
+1. ALL resource references (Ref, GetAtt, DependsOn) MUST point to resources defined in the template
+2. Check every Ref and GetAtt - ensure the resource exists
+3. Use correct resource names (case-sensitive)
+4. Include AWSTemplateFormatVersion: '2010-09-09'
+5. Apply Well-Architected: security, reliability, performance, cost
+6. Return ONLY valid YAML/JSON, no explanations"""
 
-        user_message = f"""Generate a Well-Architected CloudFormation template for: {prompt}
+        user_message = f"""Generate VALID CloudFormation template for: {prompt}
 
-Output format: {format.upper()}
+Format: {format.upper()}
 
-Apply Well-Architected principles:
-- Security: Encryption, IAM roles, security groups
-- Reliability: Multi-AZ where applicable
-- Performance: Appropriate instance types
-- Cost: Use serverless where possible
+CRITICAL: Verify all Ref and GetAtt references point to defined resources.
 
-Return ONLY the CloudFormation template."""
+Return ONLY the template."""
 
         # Call Claude via Bedrock with retry
         response = call_bedrock_with_retry(
@@ -202,30 +197,35 @@ def validate_cfn_template(template_body: str, auto_fix: bool = True) -> dict:
         try:
             bedrock = get_bedrock_client()
             
-            system_prompt = """You are a CloudFormation expert. Fix validation errors in templates.
+            system_prompt = """CloudFormation expert. Fix validation errors.
 
 Rules:
-1. Analyze the validation error
-2. Fix ONLY the specific issue
-3. Maintain all other resources and properties
+1. Check all resource references (Ref, GetAtt, DependsOn)
+2. Ensure referenced resources exist
+3. Fix resource names and dependencies
 4. Return ONLY the fixed template
-5. Ensure the template is valid CloudFormation"""
+5. No explanations"""
 
-            user_message = f"""This CloudFormation template has a validation error:
+            user_message = f"""Fix this CloudFormation validation error:
 
 ERROR: {error_message}
 
 TEMPLATE:
 {template_body}
 
-Fix the error and return ONLY the corrected CloudFormation template."""
+Common fixes:
+- If resource not found: Check spelling, add missing resource, or remove reference
+- If GetAtt fails: Verify resource exists and attribute is valid
+- If DependsOn fails: Ensure dependency resource exists
+
+Return ONLY the corrected template."""
 
             response = call_bedrock_with_retry(
                 bedrock,
                 'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
                 {
                     'anthropic_version': 'bedrock-2023-05-31',
-                    'max_tokens': 4096,
+                    'max_tokens': 16384,  # Match template generation
                     'system': system_prompt,
                     'messages': [{'role': 'user', 'content': user_message}]
                 }

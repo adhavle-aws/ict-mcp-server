@@ -92,7 +92,7 @@ agents:
     bedrock_agentcore:
       agent_id: cfn_mcp_server-4KOBaDFd4a
       agent_arn: arn:aws:bedrock-agentcore:us-east-1:611291728384:runtime/cfn_mcp_server-4KOBaDFd4a
-      agent_session_id: 37ce777c-c88d-4cd4-abdf-120813c31964
+      agent_session_id: null
     codebuild:
       project_name: bedrock-agentcore-cfn_mcp_server-builder
       execution_role: arn:aws:iam::611291728384:role/AmazonBedrockAgentCoreSDKCodeBuild-us-east-1-b4d325b89a

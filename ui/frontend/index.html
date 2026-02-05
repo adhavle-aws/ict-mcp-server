@@ -595,6 +595,30 @@
         
         initWebSocket();
         
+        // Extract concise architecture summary for WAR (reduce token count)
+        function extractArchitectureSummary(fullOverview) {
+            // Extract just Executive Summary and key components
+            const lines = fullOverview.split('\n');
+            let summary = [];
+            let inRelevantSection = false;
+            
+            for (let line of lines) {
+                if (line.includes('## Executive Summary') || 
+                    line.includes('## Component Breakdown') ||
+                    line.includes('## Architecture Diagram')) {
+                    inRelevantSection = true;
+                    summary.push(line);
+                } else if (line.startsWith('## ') && summary.length > 50) {
+                    break;
+                } else if (inRelevantSection) {
+                    summary.push(line);
+                }
+            }
+            
+            const result = summary.join('\n').trim();
+            return result || fullOverview.substring(0, 800);
+        }
+        
         function callMcpToolWs(toolName, args) {
             return new Promise((resolve, reject) => {
                 if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -953,10 +977,14 @@
                 
                 switchTabByName('architecture');
                 
-                // Step 2: Well-Architected Review (using architecture overview)
-                document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Step 2/5: Performing Well-Architected Framework review...</div>';
+                // Step 2: Well-Architected Review (using concise architecture summary)
+                document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Step 2/3: Performing Well-Architected Framework review...</div>';
+                
+                // Extract just the key components for WAR (not the full overview)
+                const architectureSummary = extractArchitectureSummary(architectureOverview);
+                
                 const reviewResult = await callMcpToolWs('well_architected_review', {
-                    prompt: architectureOverview
+                    prompt: architectureSummary
                 });
                 
                 if (!reviewResult.success) {
@@ -969,11 +997,14 @@
                     <div class="markdown-content">${marked.parse(wellArchitectedReview)}</div>
                 `;
                 
-                // Step 3: Generate CloudFormation Template (using architecture overview)
+                // Step 3: Generate CloudFormation Template (using WAR recommendations)
                 document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 3/3: Generating CloudFormation template...</div>';
                 
+                // Combine original prompt with WAR recommendations for better template
+                const enhancedPrompt = `${prompt}\n\nIncorporate these Well-Architected recommendations:\n${wellArchitectedReview.substring(0, 1000)}`;
+                
                 const templateResult = await callMcpToolWs('build_cfn_template', {
-                    prompt: architectureOverview,
+                    prompt: enhancedPrompt,
                     format: 'yaml'
                 });
                 

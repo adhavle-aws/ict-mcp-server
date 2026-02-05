@@ -953,9 +953,9 @@
             document.getElementById('provisioningMenu').classList.add('disabled');
             
             // Show loading
-            document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 1/3: Analyzing requirements and designing architecture...</div>';
-            document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Waiting for architecture...</div>';
-            document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Waiting for review...</div>';
+            document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 1/2: Analyzing requirements and designing architecture...</div>';
+            document.getElementById('reviewContent').innerHTML = '<div class="info">Well-Architected principles are automatically applied in the CloudFormation template.</div>';
+            document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Waiting for architecture...</div>';
             
             try {
                 // Step 1: Architecture Overview (text-based summary)
@@ -977,32 +977,11 @@
                 
                 switchTabByName('architecture');
                 
-                // Step 2: Well-Architected Review (using concise architecture summary)
-                document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Step 2/3: Performing Well-Architected Framework review...</div>';
+                // Step 2: Generate CloudFormation Template (skip WAR, apply principles in template)
+                document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 2/2: Generating Well-Architected CloudFormation template...</div>';
                 
-                // Extract just the key components for WAR (not the full overview)
-                const architectureSummary = extractArchitectureSummary(architectureOverview);
-                
-                const reviewResult = await callMcpToolWs('well_architected_review', {
-                    prompt: architectureSummary
-                });
-                
-                if (!reviewResult.success) {
-                    throw new Error(reviewResult.error);
-                }
-                
-                const wellArchitectedReview = reviewResult.review;
-                
-                document.getElementById('reviewContent').innerHTML = `
-                    <div class="markdown-content">${marked.parse(wellArchitectedReview)}</div>
-                `;
-                
-                // Step 3: Generate CloudFormation Template (using original prompt for clarity)
-                document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 3/3: Generating CloudFormation template...</div>';
-                
-                // Use original prompt for template generation (cleaner, more reliable)
                 const templateResult = await callMcpToolWs('build_cfn_template', {
-                    prompt: prompt,  // Original user prompt, not WAR output
+                    prompt: prompt,  // Original user prompt
                     format: 'yaml'
                 });
                 

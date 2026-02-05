@@ -177,21 +177,28 @@ def build_cfn_template(prompt: str, format: str = "yaml") -> dict:
         bedrock = get_bedrock_client()
         
         # Create prompt for Claude
-        system_prompt = """You are a CloudFormation expert. Generate valid CloudFormation templates based on user requirements.
+        system_prompt = """You are a CloudFormation expert. Generate valid CloudFormation templates following AWS Well-Architected Framework principles.
 
 Rules:
 1. Return ONLY valid CloudFormation YAML/JSON
 2. Include AWSTemplateFormatVersion: '2010-09-09'
 3. Use proper resource types and properties
-4. Follow AWS best practices
-5. Add appropriate resource names
-6. Return ONLY the template, no explanations"""
+4. Follow AWS Well-Architected best practices (security, reliability, performance, cost optimization)
+5. Add appropriate resource names and descriptions
+6. Include security best practices (encryption, least privilege, etc.)
+7. Return ONLY the template, no explanations"""
 
-        user_message = f"""Generate a CloudFormation template for: {prompt}
+        user_message = f"""Generate a Well-Architected CloudFormation template for: {prompt}
 
 Output format: {format.upper()}
 
-Return ONLY the CloudFormation template, nothing else."""
+Apply Well-Architected principles:
+- Security: Encryption, IAM roles, security groups
+- Reliability: Multi-AZ where applicable
+- Performance: Appropriate instance types
+- Cost: Use serverless where possible
+
+Return ONLY the CloudFormation template."""
 
         # Call Claude via Bedrock with retry
         response = call_bedrock_with_retry(

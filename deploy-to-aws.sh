@@ -1,9 +1,12 @@
 #!/bin/bash
-# Deploy CloudFormation Builder to AWS
+# Deploy CloudFormation Builder to AWS (Lambda + API Gateway).
+# Uses AWS profile aws-gaurav. Frontend deploys via Amplify on git push.
 
 set -e
 
-echo "🚀 Deploying CloudFormation Builder to AWS"
+export AWS_PROFILE="${AWS_PROFILE:-aws-gaurav}"
+
+echo "🚀 Deploying CloudFormation Builder to AWS (profile: $AWS_PROFILE)"
 echo "=========================================="
 echo ""
 

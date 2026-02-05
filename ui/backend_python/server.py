@@ -27,7 +27,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configuration
+# Configuration (use aws-gaurav profile for deployments)
+AWS_PROFILE = os.environ.get("AWS_PROFILE", "aws-gaurav")
 AGENT_ARN = "arn:aws:bedrock-agentcore:us-east-1:905767016260:runtime/mcp_server-CxkrO53RPH"
 REGION = "us-east-1"
 
@@ -46,8 +47,8 @@ class McpRequest(BaseModel):
 async def proxy_mcp(request: McpRequest):
     """Proxy MCP requests to AgentCore with SigV4 signing"""
     try:
-        # Get AWS credentials
-        session = boto3.Session()
+        # Get AWS credentials (uses AWS_PROFILE, default aws-gaurav)
+        session = boto3.Session(profile_name=AWS_PROFILE)
         credentials = session.get_credentials()
         
         mcp_url = get_mcp_url()

@@ -159,6 +159,40 @@ python mcp_client.py
 ```
 
 
+## Deployment
+
+All AWS deployments use the **`aws-gaurav`** profile. The app runs on **Amplify**; pushing to git triggers a frontend deploy.
+
+### Deploy AgentCore (MCP server)
+
+From the project root:
+
+```bash
+# Uses aws-gaurav profile by default
+./deploy-agentcore.sh
+# Or explicitly:
+AWS_PROFILE=aws-gaurav agentcore launch
+```
+
+### Deploy frontend (Amplify)
+
+Push to your connected Git repository; Amplify builds and deploys automatically (see `amplify.yml`).
+
+```bash
+git add .
+git commit -m "Your changes"
+git push
+```
+
+### Optional: deploy WebSocket backend (Lambda + API Gateway)
+
+If you use the WebSocket stack, use the same profile:
+
+```bash
+export AWS_PROFILE=aws-gaurav
+# Then run your CloudFormation deploy (e.g. deploy-to-aws.sh if template exists)
+```
+
 ## Deployment Status
 
 ### ✅ Deployed to AWS
@@ -167,6 +201,7 @@ python mcp_client.py
 - **WebSocket API**: `wss://197c9q4u8i.execute-api.us-east-1.amazonaws.com/prod`
 - **Deployment Type**: Container (with GraphViz)
 - **Region**: us-east-1
+- **Profile**: aws-gaurav for AgentCore and CLI deployments
 
 ### Available Tools
 

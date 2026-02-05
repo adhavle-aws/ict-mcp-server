@@ -4,6 +4,7 @@ import boto3
 import yaml
 import json
 import os
+import time
 
 # CRITICAL: stateless_http=True is required for AgentCore
 mcp = FastMCP(host="0.0.0.0", stateless_http=True)
@@ -42,6 +43,30 @@ def call_bedrock_with_retry(bedrock, model_id, body, max_retries=3):
                     time.sleep(wait_time)
                     continue
             raise
+
+
+@mcp.tool()
+def test_delay(seconds: int = 80) -> dict:
+    """
+    Sleep for the given number of seconds then return. Use this to verify
+    the UI/API does not timeout on long-running calls (e.g. >29s API Gateway limit).
+    Default 80 seconds.
+
+    Edge case tested: delay happens AFTER the request is sent and AFTER the
+    connection is established—i.e. during server-side processing (Lambda -> AgentCore
+    -> this tool). This confirms that a long-running tool execution (>29s) still
+    returns a response to the client (async Lambda + post_to_connection path).
+    """
+    start = time.time()
+    # Delay is here: during request processing, not before sending the request
+    time.sleep(max(0, int(seconds)))
+    elapsed = round(time.time() - start, 1)
+    return {
+        'success': True,
+        'message': f'Completed after {elapsed} seconds (no timeout)',
+        'requested_seconds': seconds,
+        'actual_seconds': elapsed,
+    }
 
 
 @mcp.tool()

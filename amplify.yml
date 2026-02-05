@@ -1,3 +1,5 @@
+# Amplify builds the frontend on git push. AgentCore is deployed separately
+# with: AWS_PROFILE=aws-gaurav agentcore launch  (or ./deploy-agentcore.sh)
 version: 1
 frontend:
   phases:

@@ -206,7 +206,7 @@ Return ONLY the CloudFormation template."""
             'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
             {
                 'anthropic_version': 'bedrock-2023-05-31',
-                'max_tokens': 4096,
+                'max_tokens': 16384,  # Maximum for complex enterprise templates
                 'system': system_prompt,
                 'messages': [
                     {

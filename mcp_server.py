@@ -240,22 +240,108 @@ Return ONLY the CloudFormation template."""
 
 
 @mcp.tool()
-def validate_cfn_template(template_body: str) -> dict:
-    """Validate a CloudFormation template using AWS API"""
+def validate_cfn_template(template_body: str, auto_fix: bool = True) -> dict:
+    """
+    Validate and optionally auto-fix CloudFormation template.
+    
+    Args:
+        template_body: CloudFormation template (YAML or JSON)
+        auto_fix: If True, automatically fix validation errors using Claude (default: True)
+    
+    Returns:
+        dict with validation results and fixed template if auto_fix is enabled
+    """
     cfn = get_cfn_client()
+    
     try:
+        # Try to validate
         response = cfn.validate_template(TemplateBody=template_body)
         return {
             'success': True,
             'valid': True,
-            'capabilities': response.get('Capabilities', [])
+            'capabilities': response.get('Capabilities', []),
+            'template': template_body,
+            'fixed': False
         }
     except Exception as e:
-        return {
-            'success': False,
-            'valid': False,
-            'error': str(e)
-        }
+        error_message = str(e)
+        
+        # If auto_fix is disabled, just return the error
+        if not auto_fix:
+            return {
+                'success': False,
+                'valid': False,
+                'error': error_message
+            }
+        
+        # Auto-fix: Use Claude to fix the template
+        try:
+            bedrock = get_bedrock_client()
+            
+            system_prompt = """You are a CloudFormation expert. Fix validation errors in templates.
+
+Rules:
+1. Analyze the validation error
+2. Fix ONLY the specific issue
+3. Maintain all other resources and properties
+4. Return ONLY the fixed template
+5. Ensure the template is valid CloudFormation"""
+
+            user_message = f"""This CloudFormation template has a validation error:
+
+ERROR: {error_message}
+
+TEMPLATE:
+{template_body}
+
+Fix the error and return ONLY the corrected CloudFormation template."""
+
+            response = call_bedrock_with_retry(
+                bedrock,
+                'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
+                {
+                    'anthropic_version': 'bedrock-2023-05-31',
+                    'max_tokens': 4096,
+                    'system': system_prompt,
+                    'messages': [{'role': 'user', 'content': user_message}]
+                }
+            )
+            
+            response_body = json.loads(response['body'].read())
+            fixed_template = response_body['content'][0]['text'].strip()
+            
+            # Clean up markdown code blocks
+            if fixed_template.startswith('```'):
+                lines = fixed_template.split('\n')
+                fixed_template = '\n'.join(lines[1:-1])
+            
+            # Validate the fixed template
+            try:
+                cfn.validate_template(TemplateBody=fixed_template)
+                return {
+                    'success': True,
+                    'valid': True,
+                    'fixed': True,
+                    'original_error': error_message,
+                    'template': fixed_template,
+                    'message': 'Template automatically fixed and validated successfully!'
+                }
+            except Exception as revalidation_error:
+                return {
+                    'success': False,
+                    'valid': False,
+                    'fixed': False,
+                    'error': f'Auto-fix attempted but validation still failed: {str(revalidation_error)}',
+                    'original_error': error_message,
+                    'template': fixed_template
+                }
+                
+        except Exception as fix_error:
+            return {
+                'success': False,
+                'valid': False,
+                'error': f'Validation failed: {error_message}. Auto-fix failed: {str(fix_error)}'
+            }
 
 
 @mcp.tool()

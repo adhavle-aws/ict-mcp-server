@@ -1116,26 +1116,35 @@
                 const resultDiv = document.getElementById('validationResult');
                 
                 if (result.success && result.valid) {
-                    const capabilitiesHtml = result.capabilities && result.capabilities.length > 0
-                        ? `<p><strong>Required Capabilities:</strong> ${result.capabilities.map(c => `<code>${c}</code>`).join(', ')}</p>`
-                        : '<p><strong>Required Capabilities:</strong> None</p>';
-                    
-                    resultDiv.innerHTML = `
-                        <div class="success-banner">
-                            <h3 style="margin-bottom: 0.5rem;">✅ Template Validated Successfully</h3>
-                            <p style="margin-bottom: 0.5rem;">This template has been validated by AWS CloudFormation API and is ready for deployment.</p>
-                            ${capabilitiesHtml}
-                            <p style="margin-top: 1rem; font-size: 0.9rem; opacity: 0.8;">
-                                <strong>Validation performed:</strong><br>
-                                • Syntax validation (YAML/JSON structure)<br>
-                                • Resource type validation (AWS::* types)<br>
-                                • Property validation (required properties)<br>
-                                • Parameter validation (types and constraints)<br>
-                                • Intrinsic function validation (Ref, GetAtt, etc.)<br>
-                                • IAM capability detection
-                            </p>
-                        </div>
-                    `;
+                    // Check if template was auto-fixed
+                    if (result.fixed) {
+                        // Update editor with fixed template
+                        editor.setValue(result.template);
+                        currentTemplate = result.template;
+                        
+                        resultDiv.innerHTML = `
+                            <div class="success-banner">
+                                <h3 style="margin-bottom: 0.5rem;">✅ Template Auto-Fixed and Validated!</h3>
+                                <p style="margin-bottom: 0.5rem;"><strong>Original Error:</strong> ${result.original_error}</p>
+                                <p style="margin-bottom: 0.5rem;">The template has been automatically corrected and validated successfully.</p>
+                                ${result.capabilities && result.capabilities.length > 0 
+                                    ? `<p><strong>Required Capabilities:</strong> ${result.capabilities.map(c => `<code>${c}</code>`).join(', ')}</p>`
+                                    : '<p><strong>Required Capabilities:</strong> None</p>'}
+                            </div>
+                        `;
+                    } else {
+                        const capabilitiesHtml = result.capabilities && result.capabilities.length > 0
+                            ? `<p><strong>Required Capabilities:</strong> ${result.capabilities.map(c => `<code>${c}</code>`).join(', ')}</p>`
+                            : '<p><strong>Required Capabilities:</strong> None</p>';
+                        
+                        resultDiv.innerHTML = `
+                            <div class="success-banner">
+                                <h3 style="margin-bottom: 0.5rem;">✅ Template Validated Successfully</h3>
+                                <p style="margin-bottom: 0.5rem;">This template is ready for deployment.</p>
+                                ${capabilitiesHtml}
+                            </div>
+                        `;
+                    }
                     isValidated = true;
                     
                     // Enable Provisioning Agent

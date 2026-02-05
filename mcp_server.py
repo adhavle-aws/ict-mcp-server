@@ -53,28 +53,22 @@ def generate_architecture_overview(prompt: str) -> dict:
     try:
         bedrock = get_bedrock_client()
         
-        system_prompt = """Senior AWS Solutions Architect. Create architecture overviews with clear reasoning.
+        system_prompt = """Senior AWS Solutions Architect. Create concise architecture overviews.
 
 Include:
-1. Executive Summary (2-3 sentences)
-2. Architecture Diagram (ASCII with AWS emojis: 🌐 ALB, 🖥️ EC2, 📦 S3, 🗄️ RDS/DynamoDB, λ Lambda, 🔐 IAM, 🌍 VPC)
-3. Component Breakdown (service + purpose + rationale)
-4. Design Decisions (why each choice)
-5. Data Flow
-6. Security Considerations"""
+1. Executive Summary (2 sentences)
+2. Architecture Diagram (ASCII with AWS emojis: 🌐 ALB, 🖥️ EC2, 📦 S3, 🗄️ RDS, λ Lambda, 🔐 IAM)
+3. Component List (service + purpose only)
+4. Security (key points only)"""
 
-        user_message = f"""Create architecture overview for:
-
-{prompt}
-
-Provide specific reasoning for every architectural choice."""
+        user_message = f"""Create concise architecture overview for: {prompt}"""
 
         response = call_bedrock_with_retry(
             bedrock,
             'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
             {
                 'anthropic_version': 'bedrock-2023-05-31',
-                'max_tokens': 2048,  # Reduced for faster response
+                'max_tokens': 1024,  # Reduced from 2048 for faster response
                 'system': system_prompt,
                 'messages': [{'role': 'user', 'content': user_message}]
             }

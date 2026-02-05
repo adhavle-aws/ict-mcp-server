@@ -101,17 +101,16 @@ def build_cfn_template(prompt: str, format: str = "yaml") -> dict:
         bedrock = get_bedrock_client()
         
         # Create prompt for Claude
-        system_prompt = """CloudFormation expert. Generate VALID templates following AWS Well-Architected principles.
+        system_prompt = """CloudFormation expert. Generate VALID, correct templates.
 
 CRITICAL Rules:
 1. ALL resource references (Ref, GetAtt, DependsOn) MUST point to resources defined in the template
 2. Check every Ref and GetAtt - ensure the resource exists
 3. Use correct resource names (case-sensitive)
 4. Include AWSTemplateFormatVersion: '2010-09-09'
-5. Apply Well-Architected: security, reliability, performance, cost
-6. Return ONLY valid YAML/JSON, no explanations"""
+5. Return ONLY valid YAML/JSON, no explanations"""
 
-        user_message = f"""Generate VALID CloudFormation template for: {prompt}
+        user_message = f"""Generate valid CloudFormation template for: {prompt}
 
 Format: {format.upper()}
 

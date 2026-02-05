@@ -997,14 +997,12 @@
                     <div class="markdown-content">${marked.parse(wellArchitectedReview)}</div>
                 `;
                 
-                // Step 3: Generate CloudFormation Template (using WAR recommendations)
+                // Step 3: Generate CloudFormation Template (using original prompt for clarity)
                 document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 3/3: Generating CloudFormation template...</div>';
                 
-                // Combine original prompt with WAR recommendations for better template
-                const enhancedPrompt = `${prompt}\n\nIncorporate these Well-Architected recommendations:\n${wellArchitectedReview.substring(0, 1000)}`;
-                
+                // Use original prompt for template generation (cleaner, more reliable)
                 const templateResult = await callMcpToolWs('build_cfn_template', {
-                    prompt: enhancedPrompt,
+                    prompt: prompt,  // Original user prompt, not WAR output
                     format: 'yaml'
                 });
                 

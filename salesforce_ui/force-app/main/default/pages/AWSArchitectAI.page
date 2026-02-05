@@ -1,9 +1,9 @@
 <apex:page showHeader="false" sidebar="false" standardStylesheets="false">
-<!DOCTYPE html>
+
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>AWS Architect AI - Infrastructure Design Platform</title>
     
     <!-- External Libraries -->
@@ -501,6 +501,7 @@
                     
                     <div class="example-prompts">
                         <span style="font-size: 0.9rem; color: #666; margin-right: 0.5rem;">Quick Examples:</span>
+                        <button class="example-btn" onclick="useExample('quoting')">Quoting Agent</button>
                         <button class="example-btn" onclick="useExample('3tier')">3-Tier Web App</button>
                         <button class="example-btn" onclick="useExample('serverless')">Serverless API</button>
                         <button class="example-btn" onclick="useExample('data')">Data Pipeline</button>
@@ -948,6 +949,25 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
         // Use Example Prompt
         function useExample(type) {
             const examples = {
+                'quoting': `Based on Quoting Agent conversation:
+
+Q: What kind of application do you want to host?
+A: It is a 3 tier web application
+
+Q: Which AWS region do you want the application to be hosted in?
+A: us-east-1
+
+Q: Any security and/or availability requirements to keep in mind?
+A: It should be within a private network and highly available
+
+Q: What kind of storage requirements do you have?
+A: We have 30GB of files and video data and 20GB of transaction data
+
+Q: Anything else you want us to consider?
+A: Yes, we want to have minimal operations and cost overhead. And one more thing, this app is very CPU intensive.
+
+Create the infrastructure for this application.`,
+                
                 '3tier': `Create a highly available 3-tier web application in us-east-1 with:
 - Web tier: Application Load Balancer with Auto Scaling EC2 instances
 - Application tier: EC2 instances in private subnets with Auto Scaling

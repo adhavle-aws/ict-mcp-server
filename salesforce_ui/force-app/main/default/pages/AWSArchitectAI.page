@@ -1,8 +1,9 @@
 <apex:page showHeader="false" sidebar="false" standardStylesheets="false">
+<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8"></meta>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"></meta>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AWS Architect AI - Infrastructure Design Platform</title>
     
     <!-- Marked.js for markdown rendering -->
@@ -473,8 +474,6 @@
             
             <div class="tabs">
                 <button class="tab active" onclick="switchTab('architecture')">Architecture Overview</button>
-                <button class="tab" onclick="switchTab('review')">Well-Architected Review</button>
-                <button class="tab" onclick="switchTab('cost')">Cost Optimization</button>
                 <button class="tab" onclick="switchTab('template')">CloudFormation Template</button>
             </div>
             
@@ -484,23 +483,18 @@
                 </div>
             </div>
             
-            <div id="review" class="tab-content">
-                <div id="reviewContent" class="loading">
-                    Generate architecture to see Well-Architected Framework review
+            <div id="review" class="tab-content" style="display: none;">
+                <div id="reviewContent" class="info">
+                    Well-Architected principles are automatically applied in the CloudFormation template.
                 </div>
             </div>
             
-            <div id="cost" class="tab-content">
-                <div id="costContent" class="loading">
-                    Generate architecture to see cost optimization recommendations
-                </div>
-            </div>
+
             
             <div id="template" class="tab-content">
                 <div class="architecture-container">
                     <div class="architecture-toolbar">
                         <button class="arch-tab active" id="templateViewBtn" onclick="switchTemplateView('yaml')">Template</button>
-                        <button class="arch-tab" id="diagramViewBtn" onclick="switchTemplateView('diagram')">Diagram</button>
                     </div>
                     
                     <div id="yamlView" class="arch-view">
@@ -546,7 +540,7 @@
     </div>
     
     <script>
-        const WS_URL = 'wss://z832i481e5.execute-api.us-east-1.amazonaws.com/prod';
+        const WS_URL = 'wss://9h32jjkhg3.execute-api.us-east-1.amazonaws.com/prod';
         let currentTemplate = '';
         let ws = null;
         let requestCallbacks = new Map();
@@ -599,6 +593,30 @@
         }
         
         initWebSocket();
+        
+        // Extract concise architecture summary for WAR (reduce token count)
+        function extractArchitectureSummary(fullOverview) {
+            // Extract just Executive Summary and key components
+            const lines = fullOverview.split('\n');
+            let summary = [];
+            let inRelevantSection = false;
+            
+            for (let line of lines) {
+                if (line.includes('## Executive Summary') || 
+                    line.includes('## Component Breakdown') ||
+                    line.includes('## Architecture Diagram')) {
+                    inRelevantSection = true;
+                    summary.push(line);
+                } else if (line.startsWith('## ') && summary.length > 50) {
+                    break;
+                } else if (inRelevantSection) {
+                    summary.push(line);
+                }
+            }
+            
+            const result = summary.join('\n').trim();
+            return result || fullOverview.substring(0, 800);
+        }
         
         function callMcpToolWs(toolName, args) {
             return new Promise((resolve, reject) => {
@@ -864,7 +882,7 @@
         }
         
         function switchTabByName(tabName) {
-            const tabs = ['architecture', 'cost', 'review', 'template'];
+            const tabs = ['architecture', 'template'];
             const index = tabs.indexOf(tabName);
             if (index >= 0) {
                 document.querySelectorAll('.tab')[index].classList.add('active');
@@ -934,10 +952,9 @@
             document.getElementById('provisioningMenu').classList.add('disabled');
             
             // Show loading
-            document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 1/4: Analyzing requirements and designing architecture...</div>';
-            document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Waiting for architecture...</div>';
-            document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Waiting for cost analysis...</div>';
-            document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Waiting for review...</div>';
+            document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 1/2: Analyzing requirements and designing architecture...</div>';
+            document.getElementById('reviewContent').innerHTML = '<div class="info">Well-Architected principles are automatically applied in the CloudFormation template.</div>';
+            document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Waiting for architecture...</div>';
             
             try {
                 // Step 1: Architecture Overview (text-based summary)
@@ -959,41 +976,11 @@
                 
                 switchTabByName('architecture');
                 
-                // Step 2: Well-Architected Review (using architecture overview)
-                document.getElementById('reviewContent').innerHTML = '<div class="loading">⏳ Step 2/5: Performing Well-Architected Framework review...</div>';
-                const reviewResult = await callMcpToolWs('well_architected_review', {
-                    prompt: architectureOverview
-                });
-                
-                if (!reviewResult.success) {
-                    throw new Error(reviewResult.error);
-                }
-                
-                const wellArchitectedReview = reviewResult.review;
-                
-                document.getElementById('reviewContent').innerHTML = `
-                    <div class="markdown-content">${marked.parse(wellArchitectedReview)}</div>
-                `;
-                
-                // Step 3: Cost Optimization (using well-architected review)
-                document.getElementById('costContent').innerHTML = '<div class="loading">⏳ Step 3/5: Analyzing cost optimization...</div>';
-                const costResult = await callMcpToolWs('analyze_cost_optimization', {
-                    prompt: wellArchitectedReview
-                });
-                
-                if (!costResult.success) {
-                    throw new Error(costResult.error);
-                }
-                
-                document.getElementById('costContent').innerHTML = `
-                    <div class="markdown-content">${marked.parse(costResult.analysis)}</div>
-                `;
-                
-                // Step 4: Generate CloudFormation Template (using architecture overview)
-                document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 4/5: Generating CloudFormation template...</div>';
+                // Step 2: Generate CloudFormation Template (skip WAR, apply principles in template)
+                document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 2/2: Generating Well-Architected CloudFormation template...</div>';
                 
                 const templateResult = await callMcpToolWs('build_cfn_template', {
-                    prompt: architectureOverview,
+                    prompt: prompt,  // Original user prompt
                     format: 'yaml'
                 });
                 
@@ -1130,26 +1117,35 @@
                 const resultDiv = document.getElementById('validationResult');
                 
                 if (result.success && result.valid) {
-                    const capabilitiesHtml = result.capabilities && result.capabilities.length > 0
-                        ? `<p><strong>Required Capabilities:</strong> ${result.capabilities.map(c => `<code>${c}</code>`).join(', ')}</p>`
-                        : '<p><strong>Required Capabilities:</strong> None</p>';
-                    
-                    resultDiv.innerHTML = `
-                        <div class="success-banner">
-                            <h3 style="margin-bottom: 0.5rem;">✅ Template Validated Successfully</h3>
-                            <p style="margin-bottom: 0.5rem;">This template has been validated by AWS CloudFormation API and is ready for deployment.</p>
-                            ${capabilitiesHtml}
-                            <p style="margin-top: 1rem; font-size: 0.9rem; opacity: 0.8;">
-                                <strong>Validation performed:</strong><br>
-                                • Syntax validation (YAML/JSON structure)<br>
-                                • Resource type validation (AWS::* types)<br>
-                                • Property validation (required properties)<br>
-                                • Parameter validation (types and constraints)<br>
-                                • Intrinsic function validation (Ref, GetAtt, etc.)<br>
-                                • IAM capability detection
-                            </p>
-                        </div>
-                    `;
+                    // Check if template was auto-fixed
+                    if (result.fixed) {
+                        // Update editor with fixed template
+                        editor.setValue(result.template);
+                        currentTemplate = result.template;
+                        
+                        resultDiv.innerHTML = `
+                            <div class="success-banner">
+                                <h3 style="margin-bottom: 0.5rem;">✅ Template Auto-Fixed and Validated!</h3>
+                                <p style="margin-bottom: 0.5rem;"><strong>Original Error:</strong> ${result.original_error}</p>
+                                <p style="margin-bottom: 0.5rem;">The template has been automatically corrected and validated successfully.</p>
+                                ${result.capabilities && result.capabilities.length > 0 
+                                    ? `<p><strong>Required Capabilities:</strong> ${result.capabilities.map(c => `<code>${c}</code>`).join(', ')}</p>`
+                                    : '<p><strong>Required Capabilities:</strong> None</p>'}
+                            </div>
+                        `;
+                    } else {
+                        const capabilitiesHtml = result.capabilities && result.capabilities.length > 0
+                            ? `<p><strong>Required Capabilities:</strong> ${result.capabilities.map(c => `<code>${c}</code>`).join(', ')}</p>`
+                            : '<p><strong>Required Capabilities:</strong> None</p>';
+                        
+                        resultDiv.innerHTML = `
+                            <div class="success-banner">
+                                <h3 style="margin-bottom: 0.5rem;">✅ Template Validated Successfully</h3>
+                                <p style="margin-bottom: 0.5rem;">This template is ready for deployment.</p>
+                                ${capabilitiesHtml}
+                            </div>
+                        `;
+                    }
                     isValidated = true;
                     
                     // Enable Provisioning Agent
@@ -1206,4 +1202,5 @@
     </script>
 </body>
 </html>
+
 </apex:page>

@@ -473,7 +473,6 @@
             
             <div class="tabs">
                 <button class="tab active" onclick="switchTab('architecture')">Architecture Overview</button>
-                <button class="tab" onclick="switchTab('review')">Well-Architected Review</button>
                 <button class="tab" onclick="switchTab('template')">CloudFormation Template</button>
             </div>
             
@@ -483,9 +482,9 @@
                 </div>
             </div>
             
-            <div id="review" class="tab-content">
-                <div id="reviewContent" class="loading">
-                    Generate architecture to see Well-Architected Framework review
+            <div id="review" class="tab-content" style="display: none;">
+                <div id="reviewContent" class="info">
+                    Well-Architected principles are automatically applied in the CloudFormation template.
                 </div>
             </div>
             
@@ -495,7 +494,6 @@
                 <div class="architecture-container">
                     <div class="architecture-toolbar">
                         <button class="arch-tab active" id="templateViewBtn" onclick="switchTemplateView('yaml')">Template</button>
-                        <button class="arch-tab" id="diagramViewBtn" onclick="switchTemplateView('diagram')">Diagram</button>
                     </div>
                     
                     <div id="yamlView" class="arch-view">
@@ -883,7 +881,7 @@
         }
         
         function switchTabByName(tabName) {
-            const tabs = ['architecture', 'review', 'template'];
+            const tabs = ['architecture', 'template'];
             const index = tabs.indexOf(tabName);
             if (index >= 0) {
                 document.querySelectorAll('.tab')[index].classList.add('active');

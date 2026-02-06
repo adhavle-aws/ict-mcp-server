@@ -1,0 +1,136 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "S3",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:DeleteBucket",
+        "s3:GetBucket*",
+        "s3:ListBucket*",
+        "s3:PutBucket*",
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:DeleteObject",
+        "s3:PutLifecycleConfiguration",
+        "s3:GetLifecycleConfiguration",
+        "s3:PutBucketVersioning",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutEncryptionConfiguration",
+        "s3:GetEncryptionConfiguration"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "Lambda",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateFunction",
+        "lambda:DeleteFunction",
+        "lambda:GetFunction",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration",
+        "lambda:AddPermission",
+        "lambda:RemovePermission",
+        "lambda:GetPolicy",
+        "lambda:PublishVersion",
+        "lambda:ListVersionsByFunction"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "Kinesis",
+      "Effect": "Allow",
+      "Action": [
+        "kinesis:CreateStream",
+        "kinesis:DeleteStream",
+        "kinesis:DescribeStream",
+        "kinesis:DescribeStreamSummary",
+        "kinesis:ListStreams",
+        "kinesis:AddTagsToStream",
+        "kinesis:RemoveTagsFromStream",
+        "kinesis:ListTagsForStream"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "Glue",
+      "Effect": "Allow",
+      "Action": [
+        "glue:CreateDatabase",
+        "glue:DeleteDatabase",
+        "glue:GetDatabase",
+        "glue:CreateTable",
+        "glue:DeleteTable",
+        "glue:GetTable",
+        "glue:CreateCrawler",
+        "glue:DeleteCrawler",
+        "glue:GetCrawler",
+        "glue:StartCrawler",
+        "glue:StopCrawler",
+        "glue:CreateJob",
+        "glue:DeleteJob",
+        "glue:GetJob",
+        "glue:CreateConnection",
+        "glue:DeleteConnection",
+        "glue:GetConnection",
+        "glue:CreatePartition",
+        "glue:DeletePartition",
+        "glue:GetPartition",
+        "glue:BatchCreatePartition",
+        "glue:UpdatePartition"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "Athena",
+      "Effect": "Allow",
+      "Action": [
+        "athena:CreateWorkGroup",
+        "athena:DeleteWorkGroup",
+        "athena:GetWorkGroup",
+        "athena:ListWorkGroups",
+        "athena:UpdateWorkGroup",
+        "athena:CreateDataCatalog",
+        "athena:DeleteDataCatalog",
+        "athena:GetDataCatalog"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "StepFunctions",
+      "Effect": "Allow",
+      "Action": [
+        "states:CreateStateMachine",
+        "states:DeleteStateMachine",
+        "states:DescribeStateMachine",
+        "states:UpdateStateMachine",
+        "states:ListStateMachines",
+        "states:TagResource",
+        "states:UntagResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IAMForCFn",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:GetRole",
+        "iam:PassRole",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:GetRolePolicy",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:PutRolePermissionsBoundary",
+        "iam:DeleteRolePermissionsBoundary"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

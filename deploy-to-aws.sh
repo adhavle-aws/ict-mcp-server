@@ -4,7 +4,7 @@
 
 set -e
 
-export AWS_PROFILE="${AWS_PROFILE:-aws-gaurav}"
+export AWS_PROFILE=aws-gaurav
 
 echo "🚀 Deploying CloudFormation Builder to AWS (profile: $AWS_PROFILE)"
 echo "=========================================="

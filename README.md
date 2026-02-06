@@ -168,10 +168,7 @@ All AWS deployments use the **`aws-gaurav`** profile. The app runs on **Amplify*
 From the project root:
 
 ```bash
-# Uses aws-gaurav profile by default
-./deploy-agentcore.sh
-# Or explicitly:
-AWS_PROFILE=aws-gaurav agentcore launch
+./deploy-agentcore.sh   # Uses profile aws-gaurav
 ```
 
 ### Deploy frontend (Amplify)
@@ -186,11 +183,10 @@ git push
 
 ### Optional: deploy WebSocket backend (Lambda + API Gateway)
 
-If you use the WebSocket stack, use the same profile:
+If you use the WebSocket stack, run from project root (scripts use profile aws-gaurav):
 
 ```bash
-export AWS_PROFILE=aws-gaurav
-# Then run your CloudFormation deploy (e.g. deploy-to-aws.sh if template exists)
+./deploy-to-aws.sh   # or your CloudFormation deploy
 ```
 
 ## Deployment Status

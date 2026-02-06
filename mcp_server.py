@@ -84,7 +84,10 @@ Include:
 1. Executive Summary (2 sentences)
 2. Architecture Diagram (ASCII with AWS emojis: 🌐 ALB, 🖥️ EC2, 📦 S3, 🗄️ RDS, λ Lambda, 🔐 IAM)
 3. Component List (service + purpose only)
-4. Security (key points only)"""
+4. Design Considerations: Why this architecture—key trade-offs, why these services were chosen, scalability/fault-tolerance/security rationale, and alternatives considered or why they were not used. Be specific and concise (bullet points ok).
+5. Security (key points only)
+
+Do NOT include estimated cost, pricing, or monthly cost in the overview."""
 
         user_message = f"""Create concise architecture overview for: {prompt}"""
 
@@ -93,7 +96,7 @@ Include:
             'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
             {
                 'anthropic_version': 'bedrock-2023-05-31',
-                'max_tokens': 1024,  # Reduced from 2048 for faster response
+                'max_tokens': 8192,  # Room for overview + design considerations
                 'system': system_prompt,
                 'messages': [{'role': 'user', 'content': user_message}]
             }
@@ -125,21 +128,29 @@ def build_cfn_template(prompt: str, format: str = "yaml") -> dict:
     try:
         bedrock = get_bedrock_client()
         
-        # Create prompt for Claude
-        system_prompt = """CloudFormation expert. Generate VALID, correct templates.
+        # Create prompt for Claude (Well-Architected aligned)
+        system_prompt = """CloudFormation expert. Generate VALID, correct templates aligned with the AWS Well-Architected Framework.
 
 CRITICAL Rules:
 1. ALL resource references (Ref, GetAtt, DependsOn) MUST point to resources defined in the template
 2. Check every Ref and GetAtt - ensure the resource exists
 3. Use correct resource names (case-sensitive)
 4. Include AWSTemplateFormatVersion: '2010-09-09'
-5. Return ONLY valid YAML/JSON, no explanations"""
+5. Return ONLY valid YAML/JSON, no explanations
 
-        user_message = f"""Generate valid CloudFormation template for: {prompt}
+Well-Architected Framework: Design the template with the six pillars in mind:
+- Operational Excellence: Use tags, enable logging/monitoring where relevant, keep config manageable
+- Security: Least-privilege IAM, encryption at rest/transit (e.g. S3, RDS), VPC/security groups as needed
+- Reliability: Multi-AZ or fault-tolerant patterns where appropriate, health checks, auto-scaling
+- Performance Efficiency: Right-sized resources, caching (e.g. ElastiCache, CloudFront) when it fits
+- Cost Optimization: Appropriate instance/storage types, lifecycle or scaling to avoid over-provisioning
+- Sustainability: Prefer serverless or efficient compute; avoid idle or oversized resources"""
+
+        user_message = f"""Generate a Well-Architected CloudFormation template for: {prompt}
 
 Format: {format.upper()}
 
-CRITICAL: Verify all Ref and GetAtt references point to defined resources.
+Apply Well-Architected practices where they fit the requirements. Verify all Ref and GetAtt references point to defined resources.
 
 Return ONLY the template."""
 
@@ -182,6 +193,209 @@ Return ONLY the template."""
         }
 
 
+def _load_cfn_template(template_body: str):
+    """Load CloudFormation template (YAML or JSON), handling intrinsic functions (!GetAtt, !Ref, etc.)."""
+    if template_body.strip().startswith('{'):
+        return json.loads(template_body)
+    # CloudFormation YAML uses intrinsic tags (!GetAtt, !Ref, !Sub, etc.) that PyYAML doesn't know.
+    # Register a constructor that treats any !... tag as plain data so we can parse for diagram.
+    def _cfn_intrinsic(loader, tag_suffix, node):
+        if isinstance(node, yaml.ScalarNode):
+            return loader.construct_scalar(node)
+        if isinstance(node, yaml.SequenceNode):
+            return loader.construct_sequence(node)
+        if isinstance(node, yaml.MappingNode):
+            return loader.construct_mapping(node)
+        return None
+
+    try:
+        yaml.add_multi_constructor('!', _cfn_intrinsic, Loader=yaml.SafeLoader)
+    except Exception:
+        pass  # already registered
+    return yaml.safe_load(template_body)
+
+
+def _generate_diagram_png(template_body: str, output_path: str) -> int:
+    """
+    Parse CloudFormation template, build diagram with Python 'diagrams' package,
+    write PNG to output_path. Returns number of resources drawn.
+    """
+    import tempfile
+    orig_cwd = os.getcwd()
+    from diagrams import Diagram
+    from diagrams.aws.compute import Lambda, ECS, EC2
+    from diagrams.aws.storage import S3
+    from diagrams.aws.database import RDS, Dynamodb, ElastiCache
+    from diagrams.aws.network import ELB, APIGateway, CloudFront, Route53
+    from diagrams.aws.analytics import Kinesis, Athena, Glue
+    from diagrams.aws.integration import SNS, SQS
+    from diagrams.generic.blank import Blank
+
+    try:
+        data = _load_cfn_template(template_body)
+    except Exception as e:
+        raise ValueError(f"Invalid template: {e}") from e
+
+    resources = data.get("Resources") or {}
+    if not resources:
+        raise ValueError("Template has no Resources")
+
+    # Map AWS::Service::ResourceType to (diagram_module, label_prefix)
+    TYPE_MAP = {
+        "AWS::Lambda::Function": (Lambda, "Lambda"),
+        "AWS::S3::Bucket": (S3, "S3"),
+        "AWS::DynamoDB::Table": (Dynamodb, "DynamoDB"),
+        "AWS::ApiGateway::RestApi": (APIGateway, "API"),
+        "AWS::ApiGatewayV2::Api": (APIGateway, "API"),
+        "AWS::ElasticLoadBalancingV2::LoadBalancer": (ELB, "ALB"),
+        "AWS::ECS::Service": (ECS, "ECS"),
+        "AWS::ECS::Cluster": (ECS, "Cluster"),
+        "AWS::EC2::Instance": (EC2, "EC2"),
+        "AWS::RDS::DBInstance": (RDS, "RDS"),
+        "AWS::ElastiCache::CacheCluster": (ElastiCache, "ElastiCache"),
+        "AWS::CloudFront::Distribution": (CloudFront, "CloudFront"),
+        "AWS::Route53::HostedZone": (Route53, "Route53"),
+        "AWS::Kinesis::Stream": (Kinesis, "Kinesis"),
+        "AWS::KinesisFirehose::DeliveryStream": (Kinesis, "Firehose"),
+        "AWS::Athena::WorkGroup": (Athena, "Athena"),
+        "AWS::Glue::Job": (Glue, "Glue"),
+        "AWS::Glue::Crawler": (Glue, "Crawler"),
+        "AWS::Glue::Database": (Glue, "GlueDB"),
+        "AWS::SNS::Topic": (SNS, "SNS"),
+        "AWS::SQS::Queue": (SQS, "SQS"),
+        "AWS::StepFunctions::StateMachine": (Blank, "StepFunctions"),
+    }
+
+    # Collect dependencies for edges (Ref and simple DependsOn)
+    def get_refs(props):
+        refs = []
+        if not isinstance(props, dict):
+            return refs
+        if "Ref" in props and isinstance(props["Ref"], str):
+            refs.append(props["Ref"])
+        for v in props.values():
+            if isinstance(v, dict):
+                refs.extend(get_refs(v))
+            elif isinstance(v, list):
+                for item in v:
+                    if isinstance(item, dict):
+                        refs.extend(get_refs(item))
+        return refs
+
+    # diagrams writes to cwd; use output_dir and a fixed name so we know the path
+    output_dir = os.path.dirname(output_path)
+    output_basename = os.path.basename(output_path).replace(".png", "")
+    try:
+        os.chdir(output_dir)
+        diagram_filename = output_basename
+    except Exception:
+        diagram_filename = output_path.replace(".png", "")
+
+    nodes = {}
+    with Diagram(
+        "Architecture",
+        filename=diagram_filename,
+        direction="LR",
+        show=False,
+        outformat="png",
+    ):
+        for logical_id, config in resources.items():
+            if not isinstance(config, dict):
+                continue
+            res_type = config.get("Type", "")
+            props = config.get("Properties") or {}
+            depends_on = config.get("DependsOn")
+            if isinstance(depends_on, str):
+                depends_on = [depends_on]
+            elif depends_on is None:
+                depends_on = []
+
+            pair = TYPE_MAP.get(res_type)
+            if pair is None:
+                node_cls, prefix = Blank, "Resource"
+            else:
+                node_cls, prefix = pair
+            label = logical_id if len(logical_id) <= 24 else logical_id[:21] + "..."
+            try:
+                node = node_cls(label)
+            except Exception:
+                node = Blank(label)
+            nodes[logical_id] = node
+
+        # Edges from DependsOn and Ref
+        for logical_id, config in resources.items():
+            if not isinstance(config, dict):
+                continue
+            src = nodes.get(logical_id)
+            if src is None:
+                continue
+            deps = list(config.get("DependsOn") or []) if isinstance(config.get("DependsOn"), list) else []
+            if isinstance(config.get("DependsOn"), str):
+                deps = [config.get("DependsOn")]
+            for ref in get_refs(config.get("Properties") or {}):
+                if ref in nodes and ref != logical_id:
+                    deps.append(ref)
+            for dep in deps:
+                if dep in nodes:
+                    try:
+                        nodes[dep] >> src
+                    except Exception:
+                        pass
+
+    try:
+        os.chdir(orig_cwd)
+    except Exception:
+        pass
+    return len(nodes)
+
+
+@mcp.tool()
+def generate_architecture_diagram(template_body: str) -> dict:
+    """
+    Generate a professional architecture diagram from a CloudFormation template
+    (Infrastructure Composer-style). Parses the template, maps AWS resources to
+    official icons, and returns a PNG image as base64.
+    """
+    import base64
+    import tempfile
+    import os
+
+    if not template_body or not template_body.strip():
+        return {"success": False, "error": "template_body is required"}
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            tmp_path = f.name
+        try:
+            count = _generate_diagram_png(template_body, tmp_path)
+            with open(tmp_path, "rb") as f:
+                image_b64 = base64.b64encode(f.read()).decode("utf-8")
+            return {
+                "success": True,
+                "image": image_b64,
+                "format": "png",
+                "encoding": "base64",
+                "resources_count": count,
+            }
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+            dot_path = tmp_path.replace(".png", "")
+            for path in [dot_path + ".png", dot_path]:
+                if os.path.exists(path):
+                    try:
+                        os.unlink(path)
+                    except Exception:
+                        pass
+    except ValueError as e:
+        return {"success": False, "error": str(e)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @mcp.tool()
 def validate_cfn_template(template_body: str, auto_fix: bool = True) -> dict:
     """
@@ -199,10 +413,19 @@ def validate_cfn_template(template_body: str, auto_fix: bool = True) -> dict:
     try:
         # Try to validate
         response = cfn.validate_template(TemplateBody=template_body)
+        template_params = []
+        for p in response.get('Parameters', []):
+            template_params.append({
+                'parameter_key': p.get('ParameterKey', ''),
+                'default_value': p.get('DefaultValue', ''),
+                'no_echo': p.get('NoEcho', False),
+                'description': p.get('Description', '')
+            })
         return {
             'success': True,
             'valid': True,
             'capabilities': response.get('Capabilities', []),
+            'parameters': template_params,
             'template': template_body,
             'fixed': False
         }
@@ -293,43 +516,113 @@ Return ONLY the corrected template."""
 
 
 @mcp.tool()
-def provision_cfn_stack(stack_name: str, template_body: str, capabilities: list = None) -> dict:
-    """Create or update a CloudFormation stack"""
+def provision_cfn_stack(
+    stack_name: str,
+    template_body: str,
+    capabilities: list = None,
+    parameters: list = None,
+) -> dict:
+    """
+    Create or update a CloudFormation stack.
+
+    Args:
+        stack_name: Name of the stack.
+        template_body: CloudFormation template (YAML or JSON).
+        capabilities: Optional list of capabilities (e.g. CAPABILITY_NAMED_IAM).
+        parameters: Optional list of parameter dicts, each with ParameterKey and ParameterValue.
+                   Example: [{"ParameterKey": "DBPassword", "ParameterValue": "secret"}]
+    """
     cfn = get_cfn_client()
     try:
         # Check if stack exists
         try:
             cfn.describe_stacks(StackName=stack_name)
             stack_exists = True
-        except:
+        except Exception:
             stack_exists = False
-        
+
         params = {
             'StackName': stack_name,
-            'TemplateBody': template_body
+            'TemplateBody': template_body,
         }
-        
+
         if capabilities:
             params['Capabilities'] = capabilities
-        
+
+        if parameters:
+            params['Parameters'] = [
+                {'ParameterKey': p.get('ParameterKey'), 'ParameterValue': str(p.get('ParameterValue', ''))}
+                for p in parameters
+                if p.get('ParameterKey')
+            ]
+
         if stack_exists:
             response = cfn.update_stack(**params)
             action = 'updated'
         else:
             response = cfn.create_stack(**params)
             action = 'created'
-        
+
         return {
             'success': True,
             'action': action,
-            'stack_id': response['StackId']
+            'stack_id': response['StackId'],
         }
     except Exception as e:
         return {
             'success': False,
-            'error': str(e)
+            'error': str(e),
         }
 
+
+@mcp.tool()
+def delete_cfn_stack(stack_name: str) -> dict:
+    """Delete a CloudFormation stack by name."""
+    cfn = get_cfn_client()
+    try:
+        cfn.delete_stack(StackName=stack_name)
+        return {'success': True, 'message': f'Stack {stack_name} deletion started'}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+@mcp.tool()
+def get_cfn_stack_events(stack_name: str, limit: int = 30) -> dict:
+    """
+    Get current stack status, recent events, and stack outputs for progress display.
+    Returns stack_status, events (newest first), and outputs when stack is in a complete state.
+    Poll this to show live progress. Outputs are included so the UI can render them when complete.
+    """
+    cfn = get_cfn_client()
+    try:
+        desc = cfn.describe_stacks(StackName=stack_name)
+        stack = desc['Stacks'][0]
+        stack_status = stack['StackStatus']
+        events_resp = cfn.describe_stack_events(StackName=stack_name)
+        events = []
+        for ev in events_resp.get('StackEvents', [])[:limit]:
+            events.append({
+                'timestamp': str(ev.get('Timestamp', '')),
+                'resource_status': ev.get('ResourceStatus', ''),
+                'resource_type': ev.get('ResourceType', ''),
+                'logical_id': ev.get('LogicalResourceId', ''),
+                'status_reason': ev.get('ResourceStatusReason') or ''
+            })
+        outputs = []
+        for out in stack.get('Outputs', []):
+            outputs.append({
+                'output_key': out.get('OutputKey', ''),
+                'output_value': out.get('OutputValue', ''),
+                'description': out.get('Description') or ''
+            })
+        return {
+            'success': True,
+            'stack_status': stack_status,
+            'events': events,
+            'outputs': outputs
+        }
+    except Exception as e:
+        return {'success': False, 'error': str(e), 'stack_status': None, 'events': [], 'outputs': []}
 
 
 @mcp.tool()

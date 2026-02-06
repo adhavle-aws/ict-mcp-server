@@ -1,0 +1,34 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CloudWatchDashboard",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutDashboard",
+        "cloudwatch:GetDashboard",
+        "cloudwatch:DeleteDashboards",
+        "cloudwatch:ListDashboards"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:DeleteLogGroup",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "logs:PutRetentionPolicy",
+        "logs:DeleteRetentionPolicy",
+        "logs:TagLogGroup",
+        "logs:UntagLogGroup",
+        "logs:PutLogEvents",
+        "logs:PutResourcePolicy",
+        "logs:DeleteResourcePolicy"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

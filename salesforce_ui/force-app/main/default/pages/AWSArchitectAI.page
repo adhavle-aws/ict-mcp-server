@@ -452,7 +452,7 @@
                     <div class="menu-item-desc">Architect AWS solutions</div>
                 </div>
                 
-                <div class="menu-item disabled" id="provisioningMenu">
+                <div class="menu-item disabled" id="provisioningMenu" onclick="showPage('deployment')" title="Validate template in Design Agent first">
                     <div class="menu-item-title">Deployment Agent</div>
                     <div class="menu-item-desc">Deploy CloudFormation stacks</div>
                 </div>
@@ -517,6 +517,37 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                     <button class="aws-button aws-button-primary" onclick="generateInfrastructure()" id="sendBtn">
                         Generate
                     </button>
+                </div>
+            </div>
+
+            <!-- Deployment Agent Page -->
+            <div id="deploymentPage" style="display: none; flex-direction: column; height: 100%;">
+                <div class="header">
+                    <h1>Deployment Agent</h1>
+                    <p style="font-size: 0.9rem; color: #666; margin-top: 0.25rem;">Provision or delete the validated CloudFormation template</p>
+                </div>
+                <div style="padding: 1.5rem 2rem; flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+                    <div class="input-section" style="flex-shrink: 0;">
+                        <label for="stackNameInput">Stack name <span style="font-weight: normal; color: #666;">(auto-generated from template, editable)</span></label>
+                        <input type="text" id="stackNameInput" placeholder="Generated when you have a template" style="width: 100%; padding: 0.5rem; border: 1px solid var(--aws-border); border-radius: 4px; font-size: 1rem;" />
+                    </div>
+                    <div class="input-section" style="flex-shrink: 0;">
+                        <label for="stackParamsInput">Stack parameters <span style="font-weight: normal; color: #666;">(optional; password-type params get an initial value to change later)</span></label>
+                        <textarea id="stackParamsInput" placeholder='Optional overrides, e.g. {"DBUsername": "admin"}' rows="2" style="width: 100%; padding: 0.5rem; border: 1px solid var(--aws-border); border-radius: 4px; font-size: 0.9rem; font-family: monospace;"></textarea>
+                        <div id="stackParamsHint" style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;"></div>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0;">
+                        <button class="aws-button aws-button-primary" onclick="provisionStack()" id="provisionBtn">Provision</button>
+                        <button class="aws-button aws-button-secondary" onclick="deleteStack()" id="deleteStackBtn">Delete stack</button>
+                    </div>
+                    <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 200px;">
+                        <label style="flex-shrink: 0;">CloudFormation progress</label>
+                        <pre id="stackProgress" style="flex: 1; overflow: auto; background: #232f3e; color: #eaeded; padding: 1rem; border-radius: 4px; font-size: 0.85rem; margin: 0; white-space: pre-wrap; word-break: break-all;">No deployment in progress. Stack name is auto-generated. Click Provision to deploy.</pre>
+                        <div id="stackOutputsSection" style="display: none; flex-shrink: 0; margin-top: 1rem; padding: 1rem; background: #f4f5f7; border-radius: 6px; border: 1px solid #dfe1e5;">
+                            <h3 style="margin: 0 0 0.75rem 0; font-size: 1rem;">Stack outputs</h3>
+                            <div id="stackOutputsContent"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -707,17 +738,59 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
         let ws = null;
         let requestCallbacks = new Map();
         let editor = null;
+        let lastValidationCapabilities = [];
+        let templateValidatedSuccessfully = false;
+        let stackProgressInterval = null;
         
         // Initialize Monaco Editor
         require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' }});
         
         // Page Navigation
         function showPage(pageName) {
-            document.getElementById('designPage').style.display = pageName === 'design' ? 'block' : 'none';
+            if (pageName === 'deployment' && !templateValidatedSuccessfully) return;
+            document.getElementById('designPage').style.display = pageName === 'design' ? 'flex' : 'none';
+            document.getElementById('deploymentPage').style.display = pageName === 'deployment' ? 'flex' : 'none';
             document.getElementById('guidePage').style.display = pageName === 'guide' ? 'block' : 'none';
             
-            document.querySelectorAll('.menu-item').forEach(item => item.classList.remove('active'));
-            document.getElementById(pageName + 'Menu').classList.add('active');
+            document.querySelectorAll('.menu-item').forEach(item => { item.classList.remove('active'); item.classList.remove('disabled'); });
+            const menuId = pageName === 'deployment' ? 'provisioningMenu' : pageName + 'Menu';
+            const menu = document.getElementById(menuId);
+            if (menu) menu.classList.add('active');
+            if (!templateValidatedSuccessfully) document.getElementById('provisioningMenu').classList.add('disabled');
+            if (pageName === 'deployment') refreshGeneratedStackName();
+        }
+
+        // Generate stack name from template (agentic: minimal human input)
+        function generateStackNameFromTemplate(template) {
+            if (!template || !template.trim()) return '';
+            const maxBaseLen = 80;
+            const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, maxBaseLen);
+            let base = 'stack';
+            try {
+                const t = template.trim();
+                const isJson = t.startsWith('{');
+                if (isJson) {
+                    const data = JSON.parse(template);
+                    if (data.Description) base = slug(String(data.Description));
+                } else {
+                    const descMatch = template.match(/^\s*Description\s*:\s*["']?([^"'\n|]+|.*?)["']?\s*$/m)
+                        || template.match(/^\s*Description\s*:\s*(.+?)(?=\n\w|\n\s*\n|$)/ms);
+                    if (descMatch) base = slug(descMatch[1].trim().replace(/\s+/g, ' '));
+                }
+            } catch (e) {}
+            if (!base || !/^[a-zA-Z]/.test(base)) base = 'stack-' + base;
+            const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+            const rnd = Math.random().toString(36).slice(2, 6);
+            return (base + '-' + date + '-' + rnd).replace(/-+/g, '-').slice(0, 128);
+        }
+
+        function refreshGeneratedStackName() {
+            const template = editor ? editor.getValue() : currentTemplate;
+            const input = document.getElementById('stackNameInput');
+            if (!input) return;
+            const name = generateStackNameFromTemplate(template);
+            if (name) input.value = name;
+            else input.placeholder = 'Generate a template in Design Agent first';
         }
         
         // Tab Navigation
@@ -797,12 +870,12 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                     arguments: args
                 }));
                 
-                setTimeout(() => {
+                setTimeout(function() {
                     if (requestCallbacks.has(requestId)) {
                         requestCallbacks.delete(requestId);
-                        reject(new Error('Request timed out'));
+                        reject(new Error('Request timed out (5 min)'));
                     }
-                }, 120000);
+                }, 300000);
             });
         }
 
@@ -872,11 +945,9 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                     });
                 });
                 
-                sendBtn.textContent = '✅ Generated';
-                setTimeout(() => {
-                    sendBtn.textContent = 'Generate';
-                    sendBtn.disabled = false;
-                }, 2000);
+                sendBtn.textContent = 'Generated';
+                templateValidatedSuccessfully = false;
+                document.getElementById('provisioningMenu').classList.add('disabled');
                 
             } catch (error) {
                 console.error('Error:', error);
@@ -900,6 +971,7 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                 const resultDiv = document.getElementById('validationResult');
                 
                 if (result.success && result.valid) {
+                    lastValidationCapabilities = result.capabilities || [];
                     if (result.fixed) {
                         editor.setValue(result.template);
                         currentTemplate = result.template;
@@ -920,6 +992,8 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                     }
                     validateBtn.textContent = '✅ Validated';
                     validateBtn.style.background = '#037f0c';
+                    templateValidatedSuccessfully = true;
+                    document.getElementById('provisioningMenu').classList.remove('disabled');
                 } else {
                     resultDiv.innerHTML = `
                         <div class="error-banner">
@@ -941,9 +1015,167 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
         
         // Copy Template
         function copyTemplate() {
-            const template = editor.getValue();
+            const template = editor ? editor.getValue() : currentTemplate;
             navigator.clipboard.writeText(template);
             alert('Template copied to clipboard!');
+        }
+
+        async function provisionStack() {
+            const stackName = (document.getElementById('stackNameInput').value || '').trim();
+            if (!stackName) { alert('Enter a stack name'); return; }
+            const template = editor ? editor.getValue() : currentTemplate;
+            if (!template || !template.trim()) { alert('Generate and validate a template in Design Agent first.'); return; }
+            const provisionBtn = document.getElementById('provisionBtn');
+            const progressEl = document.getElementById('stackProgress');
+            provisionBtn.disabled = true;
+            progressEl.textContent = 'Validating template...\n';
+            var outSection = document.getElementById('stackOutputsSection');
+            if (outSection) outSection.style.display = 'none';
+            try {
+                const validResult = await callMcpTool('validate_cfn_template', { template_body: template, auto_fix: false });
+                if (!validResult.success || !validResult.valid) {
+                    progressEl.textContent += 'Validation failed: ' + (validResult.error || 'Invalid template') + '\n';
+                    provisionBtn.disabled = false;
+                    return;
+                }
+                var templateParams = validResult.parameters || [];
+                var isPasswordLike = function(p) { return p.no_echo || /password|secret|token|key$/i.test((p.parameter_key || '').replace(/_/g, '')); };
+                var hintEl = document.getElementById('stackParamsHint');
+                if (hintEl) {
+                    var required = templateParams.filter(function(p) { return !p.default_value; });
+                    var pwdLike = required.filter(isPasswordLike);
+                    if (pwdLike.length) hintEl.textContent = pwdLike.map(function(p) { return p.parameter_key; }).join(', ') + ' get an initial value; change after first login.';
+                    else if (required.length) hintEl.textContent = 'Template expects parameters: ' + required.map(function(p) { return p.parameter_key; }).join(', ');
+                    else hintEl.textContent = '';
+                }
+                var userParams = {};
+                var paramsInput = (document.getElementById('stackParamsInput').value || '').trim();
+                if (paramsInput) {
+                    try { Object.assign(userParams, JSON.parse(paramsInput)); } catch (e) {
+                        progressEl.textContent += 'Invalid parameters JSON: ' + e.message + '\n';
+                        provisionBtn.disabled = false;
+                        return;
+                    }
+                }
+                var required = templateParams.filter(function(p) { return !p.default_value; });
+                for (var i = 0; i < required.length; i++) {
+                    var key = required[i].parameter_key;
+                    if (key && userParams[key] === undefined && isPasswordLike(required[i])) userParams[key] = generateInitialPassword();
+                }
+                var parameters = Object.keys(userParams).map(function(k) { return { ParameterKey: k, ParameterValue: String(userParams[k]) }; });
+                const capabilities = validResult.capabilities || lastValidationCapabilities || [];
+                progressEl.textContent += 'Creating/updating stack "' + stackName + '"...\n';
+                var provPayload = { stack_name: stackName, template_body: template, capabilities: capabilities };
+                if (parameters.length) provPayload.parameters = parameters;
+                const provResult = await callMcpTool('provision_cfn_stack', provPayload);
+                if (!provResult.success) {
+                    progressEl.textContent += 'Error: ' + provResult.error + '\n';
+                    provisionBtn.disabled = false;
+                    return;
+                }
+                progressEl.textContent += 'Stack ' + provResult.action + '. StackId: ' + provResult.stack_id + '\n\nPolling CloudFormation events...\n\n';
+                if (stackProgressInterval) clearInterval(stackProgressInterval);
+                stackProgressInterval = setInterval(function() { pollStackProgress(stackName, progressEl, provisionBtn); }, 3000);
+                pollStackProgress(stackName, progressEl, provisionBtn);
+            } catch (err) {
+                progressEl.textContent += 'Error: ' + err.message + '\n';
+                provisionBtn.disabled = false;
+            }
+        }
+
+        function generateInitialPassword() {
+            var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%';
+            var s = '';
+            var arr = new Uint8Array(20);
+            crypto.getRandomValues(arr);
+            for (var i = 0; i < 20; i++) s += chars[arr[i] % chars.length];
+            return s;
+        }
+        function escapeHtml(s) {
+            var div = document.createElement('div');
+            div.textContent = s;
+            return div.innerHTML;
+        }
+        function renderStackOutputs(outputs) {
+            var section = document.getElementById('stackOutputsSection');
+            var content = document.getElementById('stackOutputsContent');
+            if (!section || !content) return;
+            if (!outputs || outputs.length === 0) {
+                section.style.display = 'none';
+                return;
+            }
+            var rows = outputs.map(function(o) {
+                var key = escapeHtml(o.output_key || '');
+                var val = escapeHtml(o.output_value || '');
+                var desc = escapeHtml(o.description || '');
+                var valCell = /^https?:\/\//.test(o.output_value || '') ? '<a href="' + o.output_value + '" target="_blank" rel="noopener" style="color: var(--aws-orange); word-break: break-all;">' + val + '</a>' : '<span style="word-break: break-all;">' + val + '</span>';
+                return '<tr style="border-bottom: 1px solid #e0e0e0;"><td style="padding: 0.5rem; font-weight: 600;">' + key + '</td><td style="padding: 0.5rem;">' + valCell + '</td><td style="padding: 0.5rem; color: #666;">' + desc + '</td></tr>';
+            }).join('');
+            content.innerHTML = '<table style="width:100%; border-collapse: collapse;"><thead><tr style="text-align:left; border-bottom: 2px solid #ccc;"><th style="padding: 0.5rem;">Output</th><th style="padding: 0.5rem;">Value</th><th style="padding: 0.5rem;">Description</th></tr></thead><tbody>' + rows + '</tbody></table>';
+            section.style.display = 'block';
+        }
+        async function pollStackProgress(stackName, progressEl, provisionBtn) {
+            try {
+                const result = await callMcpTool('get_cfn_stack_events', { stack_name: stackName, limit: 50 });
+                if (!result.success) return;
+                var status = result.stack_status;
+                var events = result.events || [];
+                var lines = events.map(function(e) { return '[' + e.timestamp + '] ' + e.resource_status + ' ' + e.logical_id + ' (' + e.resource_type + ')' + (e.status_reason ? ' - ' + e.status_reason : ''); });
+                progressEl.textContent = 'Stack status: ' + status + '\n\n' + lines.join('\n');
+                progressEl.scrollTop = progressEl.scrollHeight;
+                var terminal = ['CREATE_COMPLETE', 'UPDATE_COMPLETE', 'CREATE_FAILED', 'UPDATE_FAILED', 'ROLLBACK_COMPLETE', 'ROLLBACK_FAILED', 'DELETE_COMPLETE'];
+                if (status && terminal.indexOf(status) !== -1) {
+                    if (stackProgressInterval) clearInterval(stackProgressInterval);
+                    stackProgressInterval = null;
+                    provisionBtn.disabled = false;
+                    if (status === 'CREATE_COMPLETE' || status === 'UPDATE_COMPLETE') {
+                        var sendBtn = document.getElementById('sendBtn');
+                        if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'Generate'; }
+                        renderStackOutputs(result.outputs);
+                    } else {
+                        var so = document.getElementById('stackOutputsSection');
+                        if (so) so.style.display = 'none';
+                    }
+                }
+            } catch (e) { console.error('Poll error', e); }
+        }
+
+        async function deleteStack() {
+            var stackName = (document.getElementById('stackNameInput').value || '').trim();
+            if (!stackName) { alert('Enter the stack name to delete'); return; }
+            if (!confirm('Delete stack "' + stackName + '"? This cannot be undone.')) return;
+            var progressEl = document.getElementById('stackProgress');
+            progressEl.textContent = 'Deleting stack "' + stackName + '"...\n';
+            try {
+                var result = await callMcpTool('delete_cfn_stack', { stack_name: stackName });
+                if (result.success) {
+                    progressEl.textContent += result.message + '\n\nPolling until deletion completes...\n\n';
+                    if (stackProgressInterval) clearInterval(stackProgressInterval);
+                    stackProgressInterval = setInterval(async function() {
+                        try {
+                            var ev = await callMcpTool('get_cfn_stack_events', { stack_name: stackName, limit: 20 });
+                            if (!ev.success) {
+                                if (ev.error && (ev.error.indexOf('does not exist') !== -1 || ev.error.indexOf('not found') !== -1)) {
+                                    if (stackProgressInterval) clearInterval(stackProgressInterval);
+                                    progressEl.textContent += '\nStack deleted.';
+                                }
+                                return;
+                            }
+                            if (ev.stack_status === 'DELETE_COMPLETE') {
+                                if (stackProgressInterval) clearInterval(stackProgressInterval);
+                                progressEl.textContent += '\nStack deleted.';
+                                return;
+                            }
+                            progressEl.textContent = 'Stack status: ' + ev.stack_status + '\n\n' + (ev.events || []).map(function(e) { return '[' + e.timestamp + '] ' + e.resource_status + ' ' + e.logical_id; }).join('\n');
+                            progressEl.scrollTop = progressEl.scrollHeight;
+                        } catch (e) {}
+                    }, 3000);
+                } else {
+                    progressEl.textContent += 'Error: ' + result.error + '\n';
+                }
+            } catch (err) {
+                progressEl.textContent += 'Error: ' + err.message + '\n';
+            }
         }
         
         // Use Example Prompt

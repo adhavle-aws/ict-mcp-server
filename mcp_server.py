@@ -128,8 +128,20 @@ def build_cfn_template(prompt: str, format: str = "yaml") -> dict:
     try:
         bedrock = get_bedrock_client()
         
-        # Create prompt for Claude (Well-Architected aligned)
-        system_prompt = """CloudFormation expert. Generate VALID, correct templates aligned with the AWS Well-Architected Framework.
+        # Create prompt for Claude
+        system_prompt = """CloudFormation expert. Generate VALID, correct templates.
+
+CRITICAL: When referencing AMI IDs via SSM Parameter Store, use ONLY these exact paths:
+
+Amazon Linux 2023 (x86_64):
+  /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
+
+Amazon Linux 2023 (ARM64):
+  /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-arm64
+
+Amazon Linux 2 (use standard paths under /aws/service/ami-amazon-linux-latest/ as needed).
+
+NEVER use /aws/service/ami-amazon-linux-2023/ - this path does not exist.
 
 CRITICAL Rules:
 1. ALL resource references (Ref, GetAtt, DependsOn) MUST point to resources defined in the template
@@ -138,19 +150,15 @@ CRITICAL Rules:
 4. Include AWSTemplateFormatVersion: '2010-09-09'
 5. Return ONLY valid YAML/JSON, no explanations
 
-Well-Architected Framework: Design the template with the six pillars in mind:
-- Operational Excellence: Use tags, enable logging/monitoring where relevant, keep config manageable
-- Security: Least-privilege IAM, encryption at rest/transit (e.g. S3, RDS), VPC/security groups as needed
-- Reliability: Multi-AZ or fault-tolerant patterns where appropriate, health checks, auto-scaling
-- Performance Efficiency: Right-sized resources, caching (e.g. ElastiCache, CloudFront) when it fits
-- Cost Optimization: Appropriate instance/storage types, lifecycle or scaling to avoid over-provisioning
-- Sustainability: Prefer serverless or efficient compute; avoid idle or oversized resources"""
+Resource identifier length limits (AWS enforces these; long names cause CREATE_FAILED):
+- RDS DBInstanceIdentifier: max 63 characters. Must start with a letter; only a-z, A-Z, 0-9, hyphens. Use a SHORT value e.g. "appdb" or "mydb01", NOT stack name + "-database" (stack names can be 80+ chars).
+- Same for other identifiers with 63-char limits where applicable (e.g. keep DB cluster identifiers short)."""
 
-        user_message = f"""Generate a Well-Architected CloudFormation template for: {prompt}
+        user_message = f"""Generate a CloudFormation template for: {prompt}
 
 Format: {format.upper()}
 
-Apply Well-Architected practices where they fit the requirements. Verify all Ref and GetAtt references point to defined resources.
+Verify all Ref and GetAtt references point to defined resources.
 
 Return ONLY the template."""
 
@@ -636,9 +644,9 @@ def analyze_cost_optimization(prompt: str = None, template_body: str = None) -> 
         
         bedrock = get_bedrock_client()
         
-        system_prompt = """You are an AWS cost optimization expert. Analyze architectures and provide specific, actionable cost-saving recommendations that directly reference the components and findings from the Well-Architected Review.
+        system_prompt = """You are an AWS cost optimization expert. Analyze architectures and provide specific, actionable cost-saving recommendations that directly reference the components and findings provided.
 
-CRITICAL: Build upon the Well-Architected Review findings. Reference specific recommendations and risks identified. Provide concrete cost estimates and savings calculations."""
+Reference specific recommendations and risks identified. Provide concrete cost estimates and savings calculations."""
 
         if template_body:
             user_message = f"""Analyze this CloudFormation template for cost optimization:
@@ -654,9 +662,9 @@ Provide:
 
 Be specific - reference actual resource names and provide cost estimates."""
         elif prompt:
-            user_message = f"""Analyze cost optimization based on this Well-Architected Review:
+            user_message = f"""Analyze cost optimization based on this architecture review:
 
-WELL-ARCHITECTED REVIEW FINDINGS:
+ARCHITECTURE FINDINGS:
 {prompt}
 
 Based on the architecture and findings above, provide:
@@ -671,9 +679,9 @@ Based on the architecture and findings above, provide:
    - Explain why they're costly in THIS specific architecture
 
 3. Optimization Recommendations:
-   - Reference the specific Well-Architected findings above
+   - Reference the specific findings above
    - Provide alternatives for expensive components
-   - Consider the trade-offs mentioned in the review (reliability vs cost)
+   - Consider the trade-offs mentioned (reliability vs cost)
 
 4. Estimated Savings:
    - Provide specific dollar amounts or percentages
@@ -684,7 +692,7 @@ Based on the architecture and findings above, provide:
    - Medium-term optimizations (1-4 weeks)
    - Long-term strategies (1-3 months)
 
-IMPORTANT: Reference the specific architecture components and Well-Architected findings. Don't provide generic cost advice."""
+IMPORTANT: Reference the specific architecture components and findings. Don't provide generic cost advice."""
 
         response = call_bedrock_with_retry(
             bedrock,
@@ -711,7 +719,8 @@ IMPORTANT: Reference the specific architecture components and Well-Architected f
 @mcp.tool()
 def well_architected_review(prompt: str = None, template_body: str = None) -> dict:
     """
-    Perform AWS Well-Architected Framework review on requirements or CloudFormation template.
+    Perform architecture review on requirements or CloudFormation template
+    (operational excellence, security, reliability, performance, cost, sustainability).
     """
     try:
         if not prompt and not template_body:
@@ -719,20 +728,20 @@ def well_architected_review(prompt: str = None, template_body: str = None) -> di
         
         bedrock = get_bedrock_client()
         
-        system_prompt = """AWS Well-Architected expert. Review against 6 pillars with specific recommendations."""
+        system_prompt = """AWS architecture expert. Review against operational excellence, security, reliability, performance efficiency, cost optimization, and sustainability. Give specific recommendations."""
 
         if template_body:
-            user_message = f"""Review CloudFormation template (6 pillars):
+            user_message = f"""Review CloudFormation template:
 
 {template_body}
 
-For each pillar: Assessment, Risks, Recommendations (High/Medium/Low priority)"""
+For each area: Assessment, Risks, Recommendations (High/Medium/Low priority)"""
         elif prompt:
-            user_message = f"""Review architecture (6 pillars):
+            user_message = f"""Review architecture:
 
 {prompt}
 
-For each pillar: Assessment, Strengths, Risks, Recommendations (priority)"""
+For each area: Assessment, Strengths, Risks, Recommendations (priority)"""
 
         response = call_bedrock_with_retry(
             bedrock,

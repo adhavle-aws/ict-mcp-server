@@ -1044,9 +1044,11 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                 if (hintEl) {
                     var required = templateParams.filter(function(p) { return !p.default_value; });
                     var pwdLike = required.filter(isPasswordLike);
-                    if (pwdLike.length) hintEl.textContent = pwdLike.map(function(p) { return p.parameter_key; }).join(', ') + ' get an initial value; change after first login.';
-                    else if (required.length) hintEl.textContent = 'Template expects parameters: ' + required.map(function(p) { return p.parameter_key; }).join(', ');
-                    else hintEl.textContent = '';
+                    var other = required.filter(function(p) { return !isPasswordLike(p); });
+                    var parts = [];
+                    if (pwdLike.length) parts.push(pwdLike.map(function(p) { return p.parameter_key; }).join(', ') + ' get an initial value; change after first login.');
+                    if (other.length) parts.push(other.map(function(p) { return p.parameter_key; }).join(', ') + ' get default values (e.g. KeyPairName: "default"); override in Stack parameters if needed.');
+                    hintEl.textContent = parts.join(' ');
                 }
                 var userParams = {};
                 var paramsInput = (document.getElementById('stackParamsInput').value || '').trim();
@@ -1060,7 +1062,9 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                 var required = templateParams.filter(function(p) { return !p.default_value; });
                 for (var i = 0; i < required.length; i++) {
                     var key = required[i].parameter_key;
-                    if (key && userParams[key] === undefined && isPasswordLike(required[i])) userParams[key] = generateInitialPassword();
+                    if (!key || userParams[key] !== undefined) continue;
+                    if (isPasswordLike(required[i])) userParams[key] = generateInitialPassword();
+                    else userParams[key] = getDefaultForParameter(key);
                 }
                 var parameters = Object.keys(userParams).map(function(k) { return { ParameterKey: k, ParameterValue: String(userParams[k]) }; });
                 const capabilities = validResult.capabilities || lastValidationCapabilities || [];
@@ -1090,6 +1094,13 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
             crypto.getRandomValues(arr);
             for (var i = 0; i < 20; i++) s += chars[arr[i] % chars.length];
             return s;
+        }
+        function getDefaultForParameter(key) {
+            var k = (key || '').toLowerCase();
+            if (k === 'keypairname') return 'default';
+            if (k === 'databaseusername' || k === 'dbusername') return 'admin';
+            if (k === 'instancetype') return 't3.micro';
+            return 'default';
         }
         function escapeHtml(s) {
             var div = document.createElement('div');

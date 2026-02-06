@@ -1049,9 +1049,11 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                 if (hintEl) {
                     const required = templateParams.filter(p => !p.default_value);
                     const pwdLike = required.filter(isPasswordLike);
-                    if (pwdLike.length) hintEl.textContent = pwdLike.map(p => p.parameter_key).join(', ') + ' get an initial value; change after first login.';
-                    else if (required.length) hintEl.textContent = 'Template expects parameters: ' + required.map(p => p.parameter_key).join(', ');
-                    else hintEl.textContent = '';
+                    const other = required.filter(p => !isPasswordLike(p));
+                    const parts = [];
+                    if (pwdLike.length) parts.push(pwdLike.map(p => p.parameter_key).join(', ') + ' get an initial value; change after first login.');
+                    if (other.length) parts.push(other.map(p => p.parameter_key).join(', ') + ' get default values (e.g. KeyPairName: "default"); override in Stack parameters if needed.');
+                    hintEl.textContent = parts.join(' ');
                 }
                 const capabilities = validResult.capabilities || lastValidationCapabilities || [];
                 const userParams = {};
@@ -1068,8 +1070,11 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                 const required = templateParams.filter(p => !p.default_value);
                 for (const p of required) {
                     const key = p.parameter_key;
-                    if (key && userParams[key] === undefined && isPasswordLike(p)) {
+                    if (!key || userParams[key] !== undefined) continue;
+                    if (isPasswordLike(p)) {
                         userParams[key] = generateInitialPassword();
+                    } else {
+                        userParams[key] = getDefaultForParameter(key);
                     }
                 }
                 const parameters = Object.entries(userParams).map(([k, v]) => ({ ParameterKey: k, ParameterValue: String(v) }));
@@ -1118,6 +1123,13 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
             crypto.getRandomValues(arr);
             for (let i = 0; i < 20; i++) s += chars[arr[i] % chars.length];
             return s;
+        }
+        function getDefaultForParameter(key) {
+            const k = (key || '').toLowerCase();
+            if (k === 'keypairname') return 'default';
+            if (k === 'databaseusername' || k === 'dbusername') return 'admin';
+            if (k === 'instancetype') return 't3.micro';
+            return 'default';
         }
         function escapeHtml(s) {
             const div = document.createElement('div');

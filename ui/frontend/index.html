@@ -551,6 +551,7 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                     <button class="aws-button aws-button-primary" onclick="generateInfrastructure()" id="sendBtn">
                         Generate
                     </button>
+                    <div id="toolTimings" style="font-size: 0.85rem; color: #666; margin-top: 0.5rem; min-height: 1.5rem;" aria-live="polite"></div>
                 </div>
             </div>
 
@@ -880,6 +881,35 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
             document.getElementById('guide-' + tabName).classList.add('active');
         }
         
+        // Tool timings: show elapsed time for each tool (last 8)
+        const toolTimingsList = [];
+        const TOOL_DISPLAY_NAMES = {
+            generate_architecture_overview: 'Architecture',
+            build_cfn_template: 'Template',
+            validate_cfn_template: 'Validate',
+            provision_cfn_stack: 'Provision',
+            delete_cfn_stack: 'Delete',
+            get_cfn_stack_events: 'Stack events',
+            estimate_infrastructure_cost: 'Cost',
+            well_architected_review: 'Review'
+        };
+        function updateToolTimingDisplay() {
+            const el = document.getElementById('toolTimings');
+            if (!el) return;
+            if (toolTimingsList.length === 0) {
+                el.textContent = '';
+                return;
+            }
+            el.textContent = '⏱ ' + toolTimingsList.map(t => t.name + ' ' + t.seconds + 's').join('  ·  ');
+        }
+        function recordToolTiming(toolName, elapsedMs) {
+            const name = TOOL_DISPLAY_NAMES[toolName] || toolName;
+            const seconds = (elapsedMs / 1000).toFixed(1);
+            toolTimingsList.push({ name, seconds });
+            if (toolTimingsList.length > 8) toolTimingsList.shift();
+            updateToolTimingDisplay();
+        }
+
         // WebSocket Connection
         function initWebSocket() {
             ws = new WebSocket(WS_URL);
@@ -899,12 +929,20 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                     if (message.type === 'progress') {
                         callbacks.onProgress?.(message);
                     } else if (message.type === 'response') {
+                        const tool = message.tool || callbacks.toolName;
+                        if (callbacks.startTime != null && tool) {
+                            recordToolTiming(tool, Date.now() - callbacks.startTime);
+                        }
                         if (message.data && message.data.thinking) {
                             console.log('🧠 Thinking:', message.data.thinking);
                         }
                         callbacks.onComplete?.(message.data);
                         requestCallbacks.delete(requestId);
                     } else if (message.type === 'error') {
+                        const tool = message.tool || callbacks.toolName;
+                        if (callbacks.startTime != null && tool) {
+                            recordToolTiming(tool + ' (error)', Date.now() - callbacks.startTime);
+                        }
                         callbacks.onError?.(message.error);
                         requestCallbacks.delete(requestId);
                     }
@@ -931,6 +969,8 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                 const requestId = Date.now().toString();
                 
                 requestCallbacks.set(requestId, {
+                    startTime: Date.now(),
+                    toolName: toolName,
                     onProgress: (data) => console.log('Progress:', data),
                     onComplete: (data) => resolve(data),
                     onError: (error) => reject(new Error(error))

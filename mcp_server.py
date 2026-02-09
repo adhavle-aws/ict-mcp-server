@@ -36,6 +36,19 @@ def _extract_text_from_converse_response(response):
     return out["text"]
 
 
+def _normalize_thinking_value(value):
+    """Extract reasoning text string from thinking block (may be str or dict with reasoningText.text)."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        rt = value.get("reasoningText") or value.get("reasoningContent")
+        if isinstance(rt, dict) and "text" in rt:
+            return rt["text"]
+        if isinstance(rt, str):
+            return rt
+    return ""
+
+
 def _extract_content_from_converse_response(response):
     """Extract text and thinking (reasoning) from Bedrock Converse API response.
     Returns dict with keys: text (str), thinking (str). Thinking may be empty."""
@@ -49,30 +62,33 @@ def _extract_content_from_converse_response(response):
             text_parts.append(block["text"])
         # Extended thinking: block has "thinking" (Anthropic) or "reasoningContent" (Bedrock ContentBlock)
         if "thinking" in block:
-            thinking_parts.append(block["thinking"])
+            thinking_parts.append(_normalize_thinking_value(block["thinking"]))
         if "reasoningContent" in block:
-            rc = block["reasoningContent"]
-            thinking_parts.append(rc if isinstance(rc, str) else str(rc))
+            thinking_parts.append(_normalize_thinking_value(block["reasoningContent"]))
     return {"text": "".join(text_parts), "thinking": "".join(thinking_parts)}
 
 
-def converse_with_retry(bedrock, model_id, system_prompt, user_message, max_tokens=4096, max_retries=3):
+def converse_with_retry(bedrock, model_id, system_prompt, user_message, max_tokens=4096, max_retries=3, enable_thinking=True):
     """Call Bedrock Converse API with exponential backoff retry. Returns the raw response dict.
-    Enables extended thinking (CoT) for supported Claude models via additionalModelRequestFields.
-    Temperature is omitted when thinking is enabled (not compatible per AWS docs)."""
-    # Extended thinking: min budget 1024; use 4096 for complex CFN/architecture tasks
-    additional = {"thinking": {"type": "enabled", "budget_tokens": 4096}}
-    inference_config = {"maxTokens": max_tokens}
-    # Thinking is not compatible with temperature/top_p/top_k
+    When enable_thinking=True: uses extended thinking (CoT) via additionalModelRequestFields; temperature omitted.
+    When enable_thinking=False: no thinking, uses temperature for faster/simpler tasks (e.g. architecture overview)."""
+    if enable_thinking:
+        inference_config = {"maxTokens": max_tokens}
+        additional = {"thinking": {"type": "enabled", "budget_tokens": 4096}}
+    else:
+        inference_config = {"maxTokens": max_tokens, "temperature": 0.2}
+        additional = None
     for attempt in range(max_retries):
         try:
-            response = bedrock.converse(
-                modelId=model_id,
-                messages=[{"role": "user", "content": [{"text": user_message}]}],
-                system=[{"text": system_prompt}],
-                inferenceConfig=inference_config,
-                additionalModelRequestFields=additional,
-            )
+            kwargs = {
+                "modelId": model_id,
+                "messages": [{"role": "user", "content": [{"text": user_message}]}],
+                "system": [{"text": system_prompt}],
+                "inferenceConfig": inference_config,
+            }
+            if additional is not None:
+                kwargs["additionalModelRequestFields"] = additional
+            response = bedrock.converse(**kwargs)
             return response
         except Exception as e:
             error_str = str(e)
@@ -129,20 +145,16 @@ def generate_architecture_overview(prompt: str) -> dict:
     try:
         bedrock = get_bedrock_client()
         _log_timing("setup", "generate_architecture_overview", t0)
-        system_prompt = """Senior AWS Solutions Architect. Create concise architecture overviews.
+        system_prompt = """Senior AWS Solutions Architect. Create a short architecture overview.
 
-OUTPUT LIMIT: Keep the entire response under 5000 tokens. Use bullet points and short paragraphs; avoid long prose, repetition, or unnecessary detail.
-
-Include:
-1. Executive Summary (2 sentences)
-2. Component List (service + purpose only)
-
-
-Do NOT include estimated cost, pricing, or monthly cost in the overview."""
-        user_message = f"""Create a concise architecture overview (under 5000 tokens) for: {prompt}"""
+Keep response under 800 tokens. Use bullet points only.
+Include: (1) Executive Summary in 2 sentences (2) Component list: service + one-line purpose.
+Do NOT include cost, pricing, or monthly estimates."""
+        user_message = f"""Short architecture overview for: {prompt}"""
         t_bedrock = time.time()
+        # No extended thinking for this tool = faster first response; other tools keep CoT.
         response = converse_with_retry(
-            bedrock, BEDROCK_MODEL_ID, system_prompt, user_message, max_tokens=5000
+            bedrock, BEDROCK_MODEL_ID, system_prompt, user_message, max_tokens=1024, enable_thinking=False
         )
         _log_timing("bedrock_invoke", "generate_architecture_overview", t_bedrock)
         out = _extract_content_from_converse_response(response)

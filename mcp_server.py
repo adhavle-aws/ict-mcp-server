@@ -5,9 +5,18 @@ import yaml
 import json
 import os
 import time
+import threading
+import uuid
 
 # CRITICAL: stateless_http=True is required for AgentCore
 mcp = FastMCP(host="0.0.0.0", stateless_http=True)
+
+# --- AgentCore long-running / async (avoids ~60s tool timeout) ---
+# In-memory store: task_id -> { "status": "processing"|"completed"|"failed", "result"|"error", "created_at" }
+# Note: With multiple AgentCore instances, polling may hit a different instance; for single-instance or sticky routing this works.
+_async_tasks = {}
+_async_tasks_lock = threading.Lock()
+ASYNC_TASK_TTL_SEC = 3600  # 1 hour; completed/failed tasks are removed when older (on read)
 
 # Expose ASGI app for AgentCore
 app = mcp.streamable_http_app
@@ -79,17 +88,12 @@ def _log_timing(stage: str, tool: str, t_start: float, t_end: float = None, extr
     print(msg)
 
 
-@mcp.tool()
-def generate_architecture_overview(prompt: str) -> dict:
-    """
-    Generate a comprehensive architecture overview from requirements.
-    Returns markdown with reasoning, component details, and ASCII diagram with AWS icons.
-    """
+def _run_overview_task(task_id: str, prompt: str) -> None:
+    """Background worker: generate overview via Bedrock and store result in _async_tasks."""
     t0 = time.time()
     try:
         bedrock = get_bedrock_client()
         _log_timing("setup", "generate_architecture_overview", t0)
-
         system_prompt = """Senior AWS Solutions Architect. Create concise architecture overviews.
 
 OUTPUT LIMIT: Keep the entire response under 5000 tokens. Use bullet points and short paragraphs; avoid long prose, repetition, or unnecessary detail.
@@ -101,50 +105,44 @@ Include:
 
 
 Do NOT include estimated cost, pricing, or monthly cost in the overview."""
-
         user_message = f"""Create a concise architecture overview (under 5000 tokens) for: {prompt}"""
-
         t_bedrock = time.time()
         response = call_bedrock_with_retry(
             bedrock,
             'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
             {
                 'anthropic_version': 'bedrock-2023-05-31',
-                'max_tokens': 5000,  # Room for overview + design considerations
+                'max_tokens': 5000,
                 'system': system_prompt,
                 'messages': [{'role': 'user', 'content': user_message}]
             }
         )
         _log_timing("bedrock_invoke", "generate_architecture_overview", t_bedrock)
-
         response_body = json.loads(response['body'].read())
         overview = response_body['content'][0]['text']
         _log_timing("total", "generate_architecture_overview", t0, extra=f"output_tokens~{len(overview.split())}")
-        return {
-            'success': True,
-            'overview': overview
-        }
+        with _async_tasks_lock:
+            _async_tasks[task_id] = {
+                "status": "completed",
+                "result": {"success": True, "overview": overview},
+                "created_at": _async_tasks.get(task_id, {}).get("created_at", t0),
+            }
     except Exception as e:
         _log_timing("total", "generate_architecture_overview", t0)
-        return {'success': False, 'error': str(e)}
+        with _async_tasks_lock:
+            created = _async_tasks.get(task_id, {}).get("created_at", t0)
+            _async_tasks[task_id] = {
+                "status": "failed",
+                "error": str(e),
+                "created_at": created,
+            }
 
 
-@mcp.tool()
-def build_cfn_template(prompt: str, format: str = "yaml") -> dict:
-    """
-    Build a CloudFormation template from a natural language prompt using Claude.
-    
-    Args:
-        prompt: Natural language description of the infrastructure
-        format: Output format - 'json' or 'yaml' (default: yaml)
-    
-    Returns:
-        dict with success status and generated CloudFormation template
-    """
+def _run_template_task(task_id: str, prompt: str, format: str) -> None:
+    """Background worker: build CFN template via Bedrock and store result in _async_tasks."""
     t0 = time.time()
     try:
         bedrock = get_bedrock_client()
-        # Create prompt for Claude
         system_prompt = """CloudFormation expert. Generate VALID, correct templates.
 
 CRITICAL: When referencing AMI IDs via SSM Parameter Store, use ONLY these exact paths:
@@ -174,7 +172,6 @@ CRITICAL - Use latest supported versions (especially RDS):
 - RDS: Always set EngineVersion to the latest stable minor for the chosen engine. Prefer: MySQL 8.0.43, PostgreSQL 16.x or 15.x latest, MariaDB 10.11+, Aurora MySQL 3.04+, Aurora PostgreSQL 15.x/16.x. Do NOT use deprecated or old versions (e.g. avoid MySQL 5.7, PostgreSQL 12 or older unless explicitly required).
 - Lambda: Use runtime identifiers that are current (e.g. python3.12, nodejs20.x, java17).
 - Other versioned resources: Prefer latest stable versions; avoid deprecated or end-of-life versions."""
-
         user_message = f"""Generate a CloudFormation template for: {prompt}
 
 Format: {format.upper()}
@@ -182,46 +179,99 @@ Format: {format.upper()}
 Verify all Ref and GetAtt references point to defined resources.
 
 Return ONLY the template."""
-
         t_bedrock = time.time()
-        # Call Claude via Bedrock with retry
         response = call_bedrock_with_retry(
             bedrock,
             'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
             {
                 'anthropic_version': 'bedrock-2023-05-31',
-                'max_tokens': 16384,  # Maximum for complex enterprise templates
+                'max_tokens': 16384,
                 'system': system_prompt,
-                'messages': [
-                    {
-                        'role': 'user',
-                        'content': user_message
-                    }
-                ]
+                'messages': [{'role': 'user', 'content': user_message}]
             }
         )
         _log_timing("bedrock_invoke", "build_cfn_template", t_bedrock)
-
-        # Parse response
         response_body = json.loads(response['body'].read())
         template_str = response_body['content'][0]['text'].strip()
-        # Clean up markdown code blocks if present
         if template_str.startswith('```'):
             lines = template_str.split('\n')
             template_str = '\n'.join(lines[1:-1])
         _log_timing("total", "build_cfn_template", t0, extra=f"output_lines={len(template_str.splitlines())}")
-        return {
-            'success': True,
-            'template': template_str,
-            'format': format,
-            'prompt': prompt
-        }
+        with _async_tasks_lock:
+            _async_tasks[task_id] = {
+                "status": "completed",
+                "result": {
+                    "success": True,
+                    "template": template_str,
+                    "format": format,
+                    "prompt": prompt,
+                },
+                "created_at": _async_tasks.get(task_id, {}).get("created_at", t0),
+            }
     except Exception as e:
         _log_timing("total", "build_cfn_template", t0)
-        return {
-            'success': False,
-            'error': str(e)
-        }
+        with _async_tasks_lock:
+            created = _async_tasks.get(task_id, {}).get("created_at", t0)
+            _async_tasks[task_id] = {
+                "status": "failed",
+                "error": str(e),
+                "created_at": created,
+            }
+
+
+@mcp.tool()
+def generate_architecture_overview(prompt: str) -> dict:
+    """
+    Generate a comprehensive architecture overview from requirements (long-running).
+    Returns immediately with task_id; poll get_async_task_result(task_id) until status is 'completed' or 'failed'.
+    Final result has 'overview' (markdown) on success or 'error' on failure.
+    """
+    task_id = str(uuid.uuid4())
+    with _async_tasks_lock:
+        _async_tasks[task_id] = {"status": "processing", "created_at": time.time()}
+    thread = threading.Thread(target=_run_overview_task, args=(task_id, prompt), daemon=True)
+    thread.start()
+    return {"success": True, "status": "processing", "task_id": task_id}
+
+
+@mcp.tool()
+def build_cfn_template(prompt: str, format: str = "yaml") -> dict:
+    """
+    Build a CloudFormation template from a natural language prompt (long-running).
+    Returns immediately with task_id; poll get_async_task_result(task_id) until status is 'completed' or 'failed'.
+    Final result has 'template', 'format', 'prompt' on success or 'error' on failure.
+    """
+    task_id = str(uuid.uuid4())
+    with _async_tasks_lock:
+        _async_tasks[task_id] = {"status": "processing", "created_at": time.time()}
+    thread = threading.Thread(target=_run_template_task, args=(task_id, prompt, format), daemon=True)
+    thread.start()
+    return {"success": True, "status": "processing", "task_id": task_id}
+
+
+@mcp.tool()
+def get_async_task_result(task_id: str) -> dict:
+    """
+    Poll for the result of a long-running task started by generate_architecture_overview or build_cfn_template.
+    Returns: status 'processing' | 'completed' | 'failed' | 'not_found'.
+    When status is 'completed', the response includes 'result' (the tool output).
+    When status is 'failed', the response includes 'error'.
+    """
+    with _async_tasks_lock:
+        entry = _async_tasks.get(task_id)
+        if not entry:
+            return {"success": False, "status": "not_found", "message": "Unknown or expired task_id"}
+        # Optional: drop very old completed/failed entries to avoid unbounded growth
+        if entry.get("status") in ("completed", "failed"):
+            created = entry.get("created_at", 0)
+            if (time.time() - created) > ASYNC_TASK_TTL_SEC:
+                del _async_tasks[task_id]
+                return {"success": False, "status": "not_found", "message": "Task result expired"}
+        if entry["status"] == "processing":
+            return {"success": True, "status": "processing"}
+        if entry["status"] == "completed":
+            return {"success": True, "status": "completed", "result": entry["result"]}
+        return {"success": False, "status": "failed", "error": entry.get("error", "Unknown error")}
 
 
 def _load_cfn_template(template_body: str):

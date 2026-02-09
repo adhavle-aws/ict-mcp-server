@@ -3,8 +3,8 @@
   "Statement": [
     {
       "Effect": "Allow",
-      "Action": ["ssm:GetParameters"],
-      "Resource": ["arn:aws:ssm:*::parameter/aws/service/*"]
+      "Action": ["ssm:GetParameter", "ssm:GetParameters"],
+      "Resource": "arn:aws:ssm:*::parameter/aws/service/*"
     }
   ]
 }

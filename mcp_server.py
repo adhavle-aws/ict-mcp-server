@@ -69,47 +69,63 @@ def test_delay(seconds: int = 80) -> dict:
     }
 
 
+def _log_timing(stage: str, tool: str, t_start: float, t_end: float = None, extra: str = ""):
+    """E2E diagnostics: log duration for a stage (seconds)."""
+    t_end = t_end or time.time()
+    duration_s = round(t_end - t_start, 2)
+    msg = f"[E2E] {tool} | {stage}: {duration_s}s"
+    if extra:
+        msg += f" | {extra}"
+    print(msg)
+
+
 @mcp.tool()
 def generate_architecture_overview(prompt: str) -> dict:
     """
     Generate a comprehensive architecture overview from requirements.
     Returns markdown with reasoning, component details, and ASCII diagram with AWS icons.
     """
+    t0 = time.time()
     try:
         bedrock = get_bedrock_client()
-        
+        _log_timing("setup", "generate_architecture_overview", t0)
+
         system_prompt = """Senior AWS Solutions Architect. Create concise architecture overviews.
+
+OUTPUT LIMIT: Keep the entire response under 5000 tokens. Use bullet points and short paragraphs; avoid long prose, repetition, or unnecessary detail.
 
 Include:
 1. Executive Summary (2 sentences)
 2. Architecture Diagram (ASCII with AWS emojis: 🌐 ALB, 🖥️ EC2, 📦 S3, 🗄️ RDS, λ Lambda, 🔐 IAM)
 3. Component List (service + purpose only)
-4. Design Considerations: Why this architecture—key trade-offs, why these services were chosen, scalability/fault-tolerance/security rationale, and alternatives considered or why they were not used. Be specific and concise (bullet points ok).
-5. Security (key points only)
+
 
 Do NOT include estimated cost, pricing, or monthly cost in the overview."""
 
-        user_message = f"""Create concise architecture overview for: {prompt}"""
+        user_message = f"""Create a concise architecture overview (under 5000 tokens) for: {prompt}"""
 
+        t_bedrock = time.time()
         response = call_bedrock_with_retry(
             bedrock,
             'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
             {
                 'anthropic_version': 'bedrock-2023-05-31',
-                'max_tokens': 8192,  # Room for overview + design considerations
+                'max_tokens': 5000,  # Room for overview + design considerations
                 'system': system_prompt,
                 'messages': [{'role': 'user', 'content': user_message}]
             }
         )
-        
+        _log_timing("bedrock_invoke", "generate_architecture_overview", t_bedrock)
+
         response_body = json.loads(response['body'].read())
         overview = response_body['content'][0]['text']
-        
+        _log_timing("total", "generate_architecture_overview", t0, extra=f"output_tokens~{len(overview.split())}")
         return {
             'success': True,
             'overview': overview
         }
     except Exception as e:
+        _log_timing("total", "generate_architecture_overview", t0)
         return {'success': False, 'error': str(e)}
 
 
@@ -125,9 +141,9 @@ def build_cfn_template(prompt: str, format: str = "yaml") -> dict:
     Returns:
         dict with success status and generated CloudFormation template
     """
+    t0 = time.time()
     try:
         bedrock = get_bedrock_client()
-        
         # Create prompt for Claude
         system_prompt = """CloudFormation expert. Generate VALID, correct templates.
 
@@ -152,7 +168,12 @@ CRITICAL Rules:
 
 Resource identifier length limits (AWS enforces these; long names cause CREATE_FAILED):
 - RDS DBInstanceIdentifier: max 63 characters. Must start with a letter; only a-z, A-Z, 0-9, hyphens. Use a SHORT value e.g. "appdb" or "mydb01", NOT stack name + "-database" (stack names can be 80+ chars).
-- Same for other identifiers with 63-char limits where applicable (e.g. keep DB cluster identifiers short)."""
+- Same for other identifiers with 63-char limits where applicable (e.g. keep DB cluster identifiers short).
+
+CRITICAL - Use latest supported versions (especially RDS):
+- RDS: Always set EngineVersion to the latest stable minor for the chosen engine. Prefer: MySQL 8.0.43, PostgreSQL 16.x or 15.x latest, MariaDB 10.11+, Aurora MySQL 3.04+, Aurora PostgreSQL 15.x/16.x. Do NOT use deprecated or old versions (e.g. avoid MySQL 5.7, PostgreSQL 12 or older unless explicitly required).
+- Lambda: Use runtime identifiers that are current (e.g. python3.12, nodejs20.x, java17).
+- Other versioned resources: Prefer latest stable versions; avoid deprecated or end-of-life versions."""
 
         user_message = f"""Generate a CloudFormation template for: {prompt}
 
@@ -162,6 +183,7 @@ Verify all Ref and GetAtt references point to defined resources.
 
 Return ONLY the template."""
 
+        t_bedrock = time.time()
         # Call Claude via Bedrock with retry
         response = call_bedrock_with_retry(
             bedrock,
@@ -178,16 +200,16 @@ Return ONLY the template."""
                 ]
             }
         )
-        
+        _log_timing("bedrock_invoke", "build_cfn_template", t_bedrock)
+
         # Parse response
         response_body = json.loads(response['body'].read())
         template_str = response_body['content'][0]['text'].strip()
-        
         # Clean up markdown code blocks if present
         if template_str.startswith('```'):
             lines = template_str.split('\n')
             template_str = '\n'.join(lines[1:-1])
-        
+        _log_timing("total", "build_cfn_template", t0, extra=f"output_lines={len(template_str.splitlines())}")
         return {
             'success': True,
             'template': template_str,
@@ -195,6 +217,7 @@ Return ONLY the template."""
             'prompt': prompt
         }
     except Exception as e:
+        _log_timing("total", "build_cfn_template", t0)
         return {
             'success': False,
             'error': str(e)
@@ -458,8 +481,9 @@ Rules:
 1. Check all resource references (Ref, GetAtt, DependsOn)
 2. Ensure referenced resources exist
 3. Fix resource names and dependencies
-4. Return ONLY the fixed template
-5. No explanations"""
+4. When touching RDS (AWS::RDS::DBInstance, AWS::RDS::DBCluster): set EngineVersion to latest stable (e.g. MySQL 8.0.43, PostgreSQL 16.x/15.x, Aurora 3.04+). Avoid deprecated versions.
+5. Return ONLY the fixed template
+6. No explanations"""
 
             user_message = f"""Fix this CloudFormation validation error:
 
@@ -472,6 +496,7 @@ Common fixes:
 - If resource not found: Check spelling, add missing resource, or remove reference
 - If GetAtt fails: Verify resource exists and attribute is valid
 - If DependsOn fails: Ensure dependency resource exists
+- For RDS: Use latest EngineVersion (e.g. MySQL 8.0.43, PostgreSQL 16.x); do not leave old or deprecated versions.
 
 Return ONLY the corrected template."""
 
@@ -553,6 +578,12 @@ def provision_cfn_stack(
             'StackName': stack_name,
             'TemplateBody': template_body,
         }
+
+        # Tag stacks created by this MCP so they're identifiable in billing, DevOps Agent, and ops.
+        if not stack_exists:
+            params['Tags'] = [
+                {'Key': 'stack-creator', 'Value': 'aws-architect-mcp'},
+            ]
 
         if capabilities:
             params['Capabilities'] = capabilities

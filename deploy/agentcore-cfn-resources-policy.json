@@ -10,6 +10,7 @@
     {"Sid": "StepFunctions", "Effect": "Allow", "Action": "states:*", "Resource": "*"},
     {"Sid": "WAFv2", "Effect": "Allow", "Action": "wafv2:*", "Resource": "*"},
     {"Sid": "Tagging", "Effect": "Allow", "Action": ["tag:GetResources", "tag:TagResources", "tag:UntagResources"], "Resource": "*"},
-    {"Sid": "IAMForCFn", "Effect": "Allow", "Action": ["iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:PassRole", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:GetRolePolicy", "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies", "iam:PutRolePermissionsBoundary", "iam:DeleteRolePermissionsBoundary", "iam:TagRole", "iam:UntagRole", "iam:ListRoleTags", "iam:CreateInstanceProfile", "iam:DeleteInstanceProfile", "iam:AddRoleToInstanceProfile", "iam:RemoveRoleFromInstanceProfile", "iam:GetInstanceProfile", "iam:ListInstanceProfiles", "iam:ListInstanceProfilesForRole"], "Resource": "*"}
+    {"Sid": "IAMForCFn", "Effect": "Allow", "Action": ["iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:PassRole", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:GetRolePolicy", "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies", "iam:PutRolePermissionsBoundary", "iam:DeleteRolePermissionsBoundary", "iam:TagRole", "iam:UntagRole", "iam:ListRoleTags", "iam:CreateInstanceProfile", "iam:DeleteInstanceProfile", "iam:AddRoleToInstanceProfile", "iam:RemoveRoleFromInstanceProfile", "iam:GetInstanceProfile", "iam:ListInstanceProfiles", "iam:ListInstanceProfilesForRole"], "Resource": "*"},
+    {"Sid": "ElasticLoadBalancing", "Effect": "Allow", "Action": ["elasticloadbalancing:*"], "Resource": "*"}
   ]
 }

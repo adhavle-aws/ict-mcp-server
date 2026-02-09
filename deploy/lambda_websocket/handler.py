@@ -3,6 +3,7 @@ WebSocket Lambda handler for CloudFormation Builder
 """
 import json
 import os
+import time
 import boto3
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
@@ -69,20 +70,23 @@ def call_mcp_tool(tool_name, arguments):
         headers=dict(aws_request.headers)
     )
     
+    t_before = time.time()
     with urllib.request.urlopen(req, timeout=300) as response:
         response_data = response.read().decode('utf-8')
-        print(f"Response data (first 500 chars): {response_data[:500]}")
-        
-        # Parse SSE format - look for "data: " line
-        lines = response_data.split('\n')
-        for line in lines:
-            if line.startswith('data: '):
-                json_data = line[6:]  # Remove 'data: ' prefix
-                result = json.loads(json_data)
-                return result
-        
-        # If no data line found
-        return {'error': 'No data in SSE response'}
+    t_after = time.time()
+    print(f"[E2E] Lambda: AgentCore HTTP wait={round(t_after - t_before, 2)}s response_len={len(response_data)}")
+    print(f"Response data (first 500 chars): {response_data[:500]}")
+
+    # Parse SSE format - look for "data: " line
+    lines = response_data.split('\n')
+    for line in lines:
+        if line.startswith('data: '):
+            json_data = line[6:]  # Remove 'data: ' prefix
+            result = json.loads(json_data)
+            return result
+
+    # If no data line found
+    return {'error': 'No data in SSE response'}
 
 
 def lambda_handler(event, context):
@@ -97,6 +101,7 @@ def lambda_handler(event, context):
         original_event = async_event['event']
 
         print(f"Async processing: {tool}, requestId: {request_id}")
+        t_async_start = time.time()
 
         try:
             send_message(connection_id, {
@@ -106,7 +111,12 @@ def lambda_handler(event, context):
                 'message': f'Processing {tool}...'
             }, original_event)
 
+            t_before_agentcore = time.time()
             result = call_mcp_tool(tool, arguments)
+            t_after_agentcore = time.time()
+            agentcore_round_trip_s = round(t_after_agentcore - t_before_agentcore, 2)
+            total_async_s = round(t_after_agentcore - t_async_start, 2)
+            print(f"[E2E] Lambda async: AgentCore round-trip={agentcore_round_trip_s}s total_async={total_async_s}s tool={tool}")
 
             if 'error' in result:
                 send_message(connection_id, {

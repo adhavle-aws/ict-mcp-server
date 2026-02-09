@@ -69,6 +69,7 @@ Resources:
         ZipFile: |
           import json
           import os
+          import time
           import boto3
           from botocore.auth import SigV4Auth
           from botocore.awsrequest import AWSRequest
@@ -141,28 +142,31 @@ Resources:
                   headers=dict(aws_request.headers)
               )
               
+              t_before = time.time()
               with urllib.request.urlopen(req, timeout=300) as response:
                   response_data = response.read().decode('utf-8')
-                  print(f"Response data length: {len(response_data)}")
-                  print(f"Response starts with: {response_data[:100]}")
-                  
-                  if not response_data.strip():
-                      return {'error': 'Empty response from AgentCore'}
-                  
-                  # Parse SSE format (may start with ping comment)
-                  if 'event:' in response_data:
-                      print("Parsing as SSE format")
-                      lines = response_data.split('\n')
-                      for line in lines:
-                          if line.startswith('data: '):
-                              json_data = line[6:]
-                              result = json.loads(json_data)
-                              return result
-                      return {'error': 'No data line in SSE response'}
-                  else:
-                      print("Parsing as JSON")
-                      return json.loads(response_data)
-          
+              t_after = time.time()
+              print(f"[E2E] Lambda: AgentCore HTTP wait={round(t_after - t_before, 2)}s response_len={len(response_data)}")
+              print(f"Response data length: {len(response_data)}")
+              print(f"Response starts with: {response_data[:100]}")
+
+              if not response_data.strip():
+                  return {'error': 'Empty response from AgentCore'}
+
+              # Parse SSE format (may start with ping comment)
+              if 'event:' in response_data:
+                  print("Parsing as SSE format")
+                  lines = response_data.split('\n')
+                  for line in lines:
+                      if line.startswith('data: '):
+                          json_data = line[6:]
+                          result = json.loads(json_data)
+                          return result
+                  return {'error': 'No data line in SSE response'}
+              else:
+                  print("Parsing as JSON")
+                  return json.loads(response_data)
+
           def lambda_handler(event, context):
               route_key = event.get('requestContext', {}).get('routeKey')
               connection_id = event.get('requestContext', {}).get('connectionId')
@@ -176,7 +180,8 @@ Resources:
                   connection_id = async_event['connectionId']
                   original_event = async_event['event']
                   
-                  print(f"Async processing: {tool}")
+                  print(f"Async processing: {tool}, requestId: {request_id}")
+                  t_async_start = time.time()
                   
                   try:
                       # Send progress
@@ -188,7 +193,12 @@ Resources:
                       }, original_event)
                       
                       # Call MCP tool
+                      t_before_agentcore = time.time()
                       result = call_mcp_tool(tool, arguments)
+                      t_after_agentcore = time.time()
+                      agentcore_s = round(t_after_agentcore - t_before_agentcore, 2)
+                      total_s = round(t_after_agentcore - t_async_start, 2)
+                      print(f"[E2E] Lambda async: AgentCore round-trip={agentcore_s}s total_async={total_s}s tool={tool}")
                       
                       # Parse and send result
                       if result.get('result', {}).get('content'):

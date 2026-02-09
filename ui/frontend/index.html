@@ -103,6 +103,36 @@
             opacity: 0.7;
         }
         
+        .devops-open-container {
+            padding: 1.5rem 2rem 2rem;
+            overflow: auto;
+        }
+        .devops-features {
+            max-width: 640px;
+            margin-bottom: 1.5rem;
+        }
+        .devops-features-h {
+            font-size: 1rem;
+            margin: 1rem 0 0.4rem 0;
+            color: #232f3e;
+        }
+        .devops-features ul {
+            margin: 0 0 0.5rem 0;
+            padding-left: 1.25rem;
+            font-size: 0.9rem;
+            color: #444;
+            line-height: 1.45;
+        }
+        .devops-buttons {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+        .devops-open-btn {
+            display: inline-block;
+            text-decoration: none;
+        }
+        
         /* Main Content */
         .main-content {
             flex: 1;
@@ -456,6 +486,11 @@
                     <div class="menu-item-desc">Deploy CloudFormation stacks</div>
                 </div>
                 
+                <div class="menu-item" id="devopsMenu" onclick="showPage('devops')">
+                    <div class="menu-item-title">DevOps Agent</div>
+                    <div class="menu-item-desc">Frontier agent that resolves and proactively prevents incidents</div>
+                </div>
+                
                 <div class="menu-item" id="guideMenu" onclick="showPage('guide')">
                     <div class="menu-item-title">How-to Guide</div>
                     <div class="menu-item-desc">Agentforce integration</div>
@@ -546,6 +581,41 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                             <h3 style="margin: 0 0 0.75rem 0; font-size: 1rem;">Stack outputs</h3>
                             <div id="stackOutputsContent"></div>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DevOps Agent Page -->
+            <div id="devopsPage" style="display: none; flex-direction: column; height: 100%;">
+                <div class="header">
+                    <h1>AWS DevOps Agent</h1>
+                    <p style="font-size: 0.9rem; color: #666; margin-top: 0.25rem;">Frontier agent that resolves and proactively prevents incidents</p>
+                </div>
+                <div class="devops-open-container">
+                    <div class="devops-features">
+                        <h3 class="devops-features-h">Always on, autonomous incident response</h3>
+                        <ul>
+                            <li>Automated investigations from ticketing and alarms (e.g. ServiceNow)</li>
+                            <li>Interactive chat and coordination via Slack, ServiceNow; create AWS Support cases from investigations</li>
+                            <li>Root cause analysis using observability tools, code repos, and CI/CD data</li>
+                            <li>Detailed mitigation plans: resolve, validate, revert; agent-ready instructions for frontier agents (e.g. Kiro)</li>
+                        </ul>
+                        <h3 class="devops-features-h">Proactively prevent future incidents</h3>
+                        <ul>
+                            <li>Targeted recommendations: observability, infrastructure optimization, deployment pipeline, application resilience</li>
+                            <li>Detect issues early; refine alarms and coverage to reduce MTTD</li>
+                            <li>Continuous learning from your team’s feedback</li>
+                        </ul>
+                        <h3 class="devops-features-h">Get more from your DevOps tools</h3>
+                        <ul>
+                            <li>Application resource mapping and topology</li>
+                            <li>Built-in integrations: CloudWatch, Dynatrace, Datadog, New Relic, Splunk; GitHub, GitLab</li>
+                            <li>Connect your own MCP server for custom tools, Grafana, Prometheus, Confluence, etc.</li>
+                        </ul>
+                    </div>
+                    <div class="devops-buttons">
+                        <a class="aws-button aws-button-primary devops-open-btn" href="https://aws.amazon.com/devops-agent/features/" target="_blank" rel="noopener">Open features (new tab)</a>
+                        <a class="aws-button aws-button-secondary devops-open-btn" href="https://us-east-1.console.aws.amazon.com/aidevops/home?region=us-east-1" target="_blank" rel="noopener">Open DevOps Agent console</a>
                     </div>
                 </div>
             </div>
@@ -748,6 +818,7 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
             if (pageName === 'deployment' && !templateValidatedSuccessfully) return;
             document.getElementById('designPage').style.display = pageName === 'design' ? 'flex' : 'none';
             document.getElementById('deploymentPage').style.display = pageName === 'deployment' ? 'flex' : 'none';
+            document.getElementById('devopsPage').style.display = pageName === 'devops' ? 'flex' : 'none';
             document.getElementById('guidePage').style.display = pageName === 'guide' ? 'block' : 'none';
             
             document.querySelectorAll('.menu-item').forEach(item => { item.classList.remove('active'); item.classList.remove('disabled'); });

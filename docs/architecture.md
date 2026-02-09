@@ -148,13 +148,6 @@ Reference: `deploy/TIMEOUT_FIX.md` (Fix 1 = async Lambda; Fix 2 = bypass API Gat
 - **Logs:** In Lambda: `Response data length: 0`, `Response starts with:` (empty). In AgentCore runtime logs: `CallToolRequest` followed later by process/server restart messages.
 - **Fix:** For tools that can exceed ~60s, use the [AgentCore long-running / async pattern](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-long-run.html) (e.g. start work in background, return quickly, complete asynchronously). Do not block the MCP handler until Bedrock returns.
 
-### 3.4 Implemented long-running / async pattern
-
-- **`generate_architecture_overview`** and **`build_cfn_template`** now return **immediately** with `{ "success": true, "status": "processing", "task_id": "<uuid>" }`. Bedrock work runs in a **background thread** in the MCP server; when done, the result is stored in an in-memory task store keyed by `task_id`.
-- **New tool:** **`get_async_task_result(task_id)`** — returns `status: "processing" | "completed" | "failed" | "not_found"`. When `"completed"`, the response includes `result` (the overview or template payload); when `"failed"`, it includes `error`.
-- **UI:** After calling `generate_architecture_overview` or `build_cfn_template`, if the response has `status === "processing"` and `task_id`, the frontend calls **`pollAsyncTask(task_id)`**, which repeatedly calls `get_async_task_result` (e.g. every 2s) until `status` is `completed` or `failed`, then uses the result. So the first tool call returns in under ~60s (no Bedrock wait), and the client gets the final result via polling.
-- **Note:** The task store is in-memory per MCP server process. With multiple AgentCore instances, a poll might hit a different instance and get `not_found`; for single-instance or sticky routing, polling works. For multi-instance correctness, a shared store (e.g. DynamoDB or ElastiCache) would be needed.
-
 ---
 
 ## 4. MCP tools: list and where they are called
@@ -163,9 +156,8 @@ All tools are defined in **`mcp_server.py`** with `@mcp.tool()`. The following t
 
 | MCP tool | Purpose | Where called (UI flow) |
 |----------|----------|------------------------|
-| `generate_architecture_overview` | Bedrock-generated text overview (async: returns `task_id`, poll `get_async_task_result`) | **Generate Infrastructure** → Step 1 (architecture tab). |
-| `build_cfn_template` | Bedrock-generated CloudFormation template (async: returns `task_id`, poll `get_async_task_result`) | **Generate Infrastructure** → Step 2 (template tab). |
-| `get_async_task_result` | Poll result of long-running overview or template task by `task_id` | Used by UI after overview/template when `status === "processing"`. |
+| `generate_architecture_overview` | Bedrock-generated text overview from a prompt | **Generate Infrastructure** → Step 1 (architecture tab). |
+| `build_cfn_template` | Bedrock-generated CloudFormation template (YAML/JSON) from same prompt | **Generate Infrastructure** → Step 2 (template tab). |
 | `validate_cfn_template` | Validate template (optional auto-fix). | **Validate Template** button; also before **Deploy** (validation step). |
 | `provision_cfn_stack` | Create or update stack (template, params, capabilities). Tags new stacks with `stack-creator=aws-architect-mcp`. | **Deploy** flow after validation. |
 | `get_cfn_stack_events` | Describe stack status, recent events, and outputs. | **Deploy** (initial status + polling until complete); **Check status**; **Delete stack** (poll until stack gone). |

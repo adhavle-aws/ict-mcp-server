@@ -78,12 +78,22 @@ def call_mcp_tool(tool_name, arguments):
     print(f"Response data (first 500 chars): {response_data[:500]}")
 
     # Parse SSE format - look for "data: " line
+    if not response_data or not response_data.strip():
+        print("Response data empty")
+        return {'error': 'Empty response from AgentCore'}
+
     lines = response_data.split('\n')
     for line in lines:
         if line.startswith('data: '):
-            json_data = line[6:]  # Remove 'data: ' prefix
-            result = json.loads(json_data)
-            return result
+            json_data = line[6:].strip()  # Remove 'data: ' prefix
+            if not json_data:
+                continue
+            try:
+                result = json.loads(json_data)
+                return result
+            except json.JSONDecodeError as e:
+                print(f"JSON decode error on SSE data: {e}")
+                return {'error': f'Invalid JSON in AgentCore response: {e}'}
 
     # If no data line found
     return {'error': 'No data in SSE response'}
@@ -127,15 +137,62 @@ def lambda_handler(event, context):
                 return {'statusCode': 200}
 
             if result.get('result', {}).get('content'):
-                content_text = result['result']['content'][0]['text']
-                data = json.loads(content_text)
-                send_message(connection_id, {
-                    'type': 'response',
-                    'requestId': request_id,
-                    'tool': tool,
-                    'data': data,
-                    'status': 'completed'
-                }, original_event)
+                content_list = result['result']['content']
+                first = content_list[0] if content_list else {}
+                if not isinstance(first, dict):
+                    first = {}
+                # MCP can return text as string (JSON) or sometimes as already-parsed object
+                content_text = first.get('text')
+                if isinstance(content_text, dict):
+                    send_message(connection_id, {
+                        'type': 'response',
+                        'requestId': request_id,
+                        'tool': tool,
+                        'data': content_text,
+                        'status': 'completed'
+                    }, original_event)
+                elif isinstance(content_text, str):
+                    content_text = content_text.strip()
+                    if not content_text:
+                        send_message(connection_id, {
+                            'type': 'error',
+                            'requestId': request_id,
+                            'error': 'Empty tool result from AgentCore'
+                        }, original_event)
+                    else:
+                        try:
+                            data = json.loads(content_text)
+                        except json.JSONDecodeError as e:
+                            print(f"Tool result not JSON (first 200 chars): {content_text[:200]!r}")
+                            send_message(connection_id, {
+                                'type': 'error',
+                                'requestId': request_id,
+                                'error': f'Invalid tool result JSON: {e}'
+                            }, original_event)
+                        else:
+                            send_message(connection_id, {
+                                'type': 'response',
+                                'requestId': request_id,
+                                'tool': tool,
+                                'data': data,
+                                'status': 'completed'
+                            }, original_event)
+                else:
+                    # Use first content item as data if it looks like our tool result (e.g. has success/status)
+                    if isinstance(first, dict) and ('success' in first or 'status' in first or 'result' in first):
+                        send_message(connection_id, {
+                            'type': 'response',
+                            'requestId': request_id,
+                            'tool': tool,
+                            'data': first,
+                            'status': 'completed'
+                        }, original_event)
+                    else:
+                        send_message(connection_id, {
+                            'type': 'error',
+                            'requestId': request_id,
+                            'error': 'Empty or unsupported tool result from AgentCore'
+                        }, original_event)
             else:
                 send_message(connection_id, {
                     'type': 'error',
@@ -170,7 +227,11 @@ def lambda_handler(event, context):
             return {'statusCode': 200}
 
         elif route_key == '$default':
-            body = json.loads(event.get('body', '{}'))
+            raw_body = event.get('body') or '{}'
+            try:
+                body = json.loads(raw_body)
+            except json.JSONDecodeError:
+                body = {}
             request_id = body.get('id')
             tool = body.get('tool')
             arguments = body.get('arguments', {})
@@ -218,7 +279,7 @@ def lambda_handler(event, context):
 
         if route_key == '$default':
             try:
-                body = json.loads(event.get('body', '{}'))
+                body = json.loads((event.get('body') or '{}'))
                 send_message(connection_id, {
                     'type': 'error',
                     'requestId': body.get('id'),

@@ -948,21 +948,6 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
             });
         }
 
-        // Poll for long-running async task result (AgentCore avoids ~60s tool timeout)
-        async function pollAsyncTask(taskId, pollIntervalMs, timeoutMs) {
-            pollIntervalMs = pollIntervalMs || 2000;
-            timeoutMs = timeoutMs || 300000;
-            const start = Date.now();
-            while (Date.now() - start < timeoutMs) {
-                const r = await callMcpTool('get_async_task_result', { task_id: taskId });
-                if (r.status === 'completed') return r.result;
-                if (r.status === 'failed') throw new Error(r.error || 'Task failed');
-                if (r.status === 'not_found') throw new Error('Task not found or expired');
-                await new Promise(ok => setTimeout(ok, pollIntervalMs));
-            }
-            throw new Error('Polling timed out');
-        }
-
         // Generate Infrastructure
         async function generateInfrastructure() {
             const prompt = document.getElementById('promptInput').value.trim();
@@ -980,12 +965,9 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                 document.getElementById('architectureContent').innerHTML = '<div class="loading">⏳ Step 1/2: Analyzing requirements...</div>';
                 document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Waiting...</div>';
                 
-                let archResult = await callMcpTool('generate_architecture_overview', { prompt });
+                const archResult = await callMcpTool('generate_architecture_overview', { prompt });
                 if (!archResult.success) throw new Error(archResult.error);
-                if (archResult.status === 'processing' && archResult.task_id) {
-                    archResult = await pollAsyncTask(archResult.task_id);
-                }
-                if (!archResult || !archResult.overview) throw new Error(archResult?.error || 'No overview');
+                if (!archResult.overview) throw new Error(archResult.error || 'No overview');
                 
                 document.getElementById('architectureContent').innerHTML = 
                     `<div class="markdown-content">${marked.parse(archResult.overview)}</div>`;
@@ -999,16 +981,12 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                 // Step 2: CloudFormation Template
                 document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 2/2: Generating template...</div>';
                 
-                let templateResult = await callMcpTool('build_cfn_template', { 
+                const templateResult = await callMcpTool('build_cfn_template', { 
                     prompt, 
                     format: 'yaml' 
                 });
                 if (!templateResult.success) throw new Error(templateResult.error);
-                if (templateResult.status === 'processing' && templateResult.task_id) {
-                    templateResult = await pollAsyncTask(templateResult.task_id);
-                }
-                if (!templateResult || !templateResult.template) throw new Error(templateResult?.error || 'No template');
-                
+                if (!templateResult.template) throw new Error(templateResult.error || 'No template');
                 currentTemplate = templateResult.template;
                 
                 // Display template in Monaco Editor

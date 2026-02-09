@@ -5,18 +5,9 @@ import yaml
 import json
 import os
 import time
-import threading
-import uuid
 
 # CRITICAL: stateless_http=True is required for AgentCore
 mcp = FastMCP(host="0.0.0.0", stateless_http=True)
-
-# --- AgentCore long-running / async (avoids ~60s tool timeout) ---
-# In-memory store: task_id -> { "status": "processing"|"completed"|"failed", "result"|"error", "created_at" }
-# Note: With multiple AgentCore instances, polling may hit a different instance; for single-instance or sticky routing this works.
-_async_tasks = {}
-_async_tasks_lock = threading.Lock()
-ASYNC_TASK_TTL_SEC = 3600  # 1 hour; completed/failed tasks are removed when older (on read)
 
 # Expose ASGI app for AgentCore
 app = mcp.streamable_http_app
@@ -88,8 +79,12 @@ def _log_timing(stage: str, tool: str, t_start: float, t_end: float = None, extr
     print(msg)
 
 
-def _run_overview_task(task_id: str, prompt: str) -> None:
-    """Background worker: generate overview via Bedrock and store result in _async_tasks."""
+@mcp.tool()
+def generate_architecture_overview(prompt: str) -> dict:
+    """
+    Generate a comprehensive architecture overview from requirements.
+    Returns markdown with reasoning, component details, and ASCII diagram with AWS icons.
+    """
     t0 = time.time()
     try:
         bedrock = get_bedrock_client()
@@ -121,25 +116,24 @@ Do NOT include estimated cost, pricing, or monthly cost in the overview."""
         response_body = json.loads(response['body'].read())
         overview = response_body['content'][0]['text']
         _log_timing("total", "generate_architecture_overview", t0, extra=f"output_tokens~{len(overview.split())}")
-        with _async_tasks_lock:
-            _async_tasks[task_id] = {
-                "status": "completed",
-                "result": {"success": True, "overview": overview},
-                "created_at": _async_tasks.get(task_id, {}).get("created_at", t0),
-            }
+        return {'success': True, 'overview': overview}
     except Exception as e:
         _log_timing("total", "generate_architecture_overview", t0)
-        with _async_tasks_lock:
-            created = _async_tasks.get(task_id, {}).get("created_at", t0)
-            _async_tasks[task_id] = {
-                "status": "failed",
-                "error": str(e),
-                "created_at": created,
-            }
+        return {'success': False, 'error': str(e)}
 
 
-def _run_template_task(task_id: str, prompt: str, format: str) -> None:
-    """Background worker: build CFN template via Bedrock and store result in _async_tasks."""
+@mcp.tool()
+def build_cfn_template(prompt: str, format: str = "yaml") -> dict:
+    """
+    Build a CloudFormation template from a natural language prompt using Claude.
+
+    Args:
+        prompt: Natural language description of the infrastructure
+        format: Output format - 'json' or 'yaml' (default: yaml)
+
+    Returns:
+        dict with success status and generated CloudFormation template
+    """
     t0 = time.time()
     try:
         bedrock = get_bedrock_client()
@@ -197,81 +191,15 @@ Return ONLY the template."""
             lines = template_str.split('\n')
             template_str = '\n'.join(lines[1:-1])
         _log_timing("total", "build_cfn_template", t0, extra=f"output_lines={len(template_str.splitlines())}")
-        with _async_tasks_lock:
-            _async_tasks[task_id] = {
-                "status": "completed",
-                "result": {
-                    "success": True,
-                    "template": template_str,
-                    "format": format,
-                    "prompt": prompt,
-                },
-                "created_at": _async_tasks.get(task_id, {}).get("created_at", t0),
-            }
+        return {
+            'success': True,
+            'template': template_str,
+            'format': format,
+            'prompt': prompt
+        }
     except Exception as e:
         _log_timing("total", "build_cfn_template", t0)
-        with _async_tasks_lock:
-            created = _async_tasks.get(task_id, {}).get("created_at", t0)
-            _async_tasks[task_id] = {
-                "status": "failed",
-                "error": str(e),
-                "created_at": created,
-            }
-
-
-@mcp.tool()
-def generate_architecture_overview(prompt: str) -> dict:
-    """
-    Generate a comprehensive architecture overview from requirements (long-running).
-    Returns immediately with task_id; poll get_async_task_result(task_id) until status is 'completed' or 'failed'.
-    Final result has 'overview' (markdown) on success or 'error' on failure.
-    """
-    task_id = str(uuid.uuid4())
-    with _async_tasks_lock:
-        _async_tasks[task_id] = {"status": "processing", "created_at": time.time()}
-    thread = threading.Thread(target=_run_overview_task, args=(task_id, prompt), daemon=True)
-    thread.start()
-    return {"success": True, "status": "processing", "task_id": task_id}
-
-
-@mcp.tool()
-def build_cfn_template(prompt: str, format: str = "yaml") -> dict:
-    """
-    Build a CloudFormation template from a natural language prompt (long-running).
-    Returns immediately with task_id; poll get_async_task_result(task_id) until status is 'completed' or 'failed'.
-    Final result has 'template', 'format', 'prompt' on success or 'error' on failure.
-    """
-    task_id = str(uuid.uuid4())
-    with _async_tasks_lock:
-        _async_tasks[task_id] = {"status": "processing", "created_at": time.time()}
-    thread = threading.Thread(target=_run_template_task, args=(task_id, prompt, format), daemon=True)
-    thread.start()
-    return {"success": True, "status": "processing", "task_id": task_id}
-
-
-@mcp.tool()
-def get_async_task_result(task_id: str) -> dict:
-    """
-    Poll for the result of a long-running task started by generate_architecture_overview or build_cfn_template.
-    Returns: status 'processing' | 'completed' | 'failed' | 'not_found'.
-    When status is 'completed', the response includes 'result' (the tool output).
-    When status is 'failed', the response includes 'error'.
-    """
-    with _async_tasks_lock:
-        entry = _async_tasks.get(task_id)
-        if not entry:
-            return {"success": False, "status": "not_found", "message": "Unknown or expired task_id"}
-        # Optional: drop very old completed/failed entries to avoid unbounded growth
-        if entry.get("status") in ("completed", "failed"):
-            created = entry.get("created_at", 0)
-            if (time.time() - created) > ASYNC_TASK_TTL_SEC:
-                del _async_tasks[task_id]
-                return {"success": False, "status": "not_found", "message": "Task result expired"}
-        if entry["status"] == "processing":
-            return {"success": True, "status": "processing"}
-        if entry["status"] == "completed":
-            return {"success": True, "status": "completed", "result": entry["result"]}
-        return {"success": False, "status": "failed", "error": entry.get("error", "Unknown error")}
+        return {'success': False, 'error': str(e)}
 
 
 def _load_cfn_template(template_body: str):

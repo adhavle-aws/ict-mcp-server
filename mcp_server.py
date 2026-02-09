@@ -9,6 +9,13 @@ import time
 # CRITICAL: stateless_http=True is required for AgentCore
 mcp = FastMCP(host="0.0.0.0", stateless_http=True)
 
+# Bedrock model for overview/template/cost/WAF (override with BEDROCK_MODEL_ID env).
+# Fastest: Claude Haiku 4.5 (~lowest latency, good for CFN/overview). Stronger but slower: Claude Sonnet 4.5.
+BEDROCK_MODEL_ID = os.environ.get(
+    "BEDROCK_MODEL_ID",
+    "global.anthropic.claude-haiku-4-5-20251001-v1:0",  # Haiku 4.5 – fastest; use claude-sonnet-4-5-* for higher quality
+)
+
 # Expose ASGI app for AgentCore
 app = mcp.streamable_http_app
 
@@ -23,22 +30,55 @@ def get_bedrock_client():
     return boto3.client('bedrock-runtime', region_name=region)
 
 
-def call_bedrock_with_retry(bedrock, model_id, body, max_retries=3):
-    """Call Bedrock with exponential backoff retry"""
-    import time
-    
+def _extract_text_from_converse_response(response):
+    """Extract assistant text from Bedrock Converse API response."""
+    out = _extract_content_from_converse_response(response)
+    return out["text"]
+
+
+def _extract_content_from_converse_response(response):
+    """Extract text and thinking (reasoning) from Bedrock Converse API response.
+    Returns dict with keys: text (str), thinking (str). Thinking may be empty."""
+    content = response.get("output", {}).get("message", {}).get("content") or []
+    text_parts = []
+    thinking_parts = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        if "text" in block:
+            text_parts.append(block["text"])
+        # Extended thinking: block has "thinking" (Anthropic) or "reasoningContent" (Bedrock ContentBlock)
+        if "thinking" in block:
+            thinking_parts.append(block["thinking"])
+        if "reasoningContent" in block:
+            rc = block["reasoningContent"]
+            thinking_parts.append(rc if isinstance(rc, str) else str(rc))
+    return {"text": "".join(text_parts), "thinking": "".join(thinking_parts)}
+
+
+def converse_with_retry(bedrock, model_id, system_prompt, user_message, max_tokens=4096, max_retries=3):
+    """Call Bedrock Converse API with exponential backoff retry. Returns the raw response dict.
+    Enables extended thinking (CoT) for supported Claude models via additionalModelRequestFields.
+    Temperature is omitted when thinking is enabled (not compatible per AWS docs)."""
+    # Extended thinking: min budget 1024; use 4096 for complex CFN/architecture tasks
+    additional = {"thinking": {"type": "enabled", "budget_tokens": 4096}}
+    inference_config = {"maxTokens": max_tokens}
+    # Thinking is not compatible with temperature/top_p/top_k
     for attempt in range(max_retries):
         try:
-            response = bedrock.invoke_model(
+            response = bedrock.converse(
                 modelId=model_id,
-                body=json.dumps(body)
+                messages=[{"role": "user", "content": [{"text": user_message}]}],
+                system=[{"text": system_prompt}],
+                inferenceConfig=inference_config,
+                additionalModelRequestFields=additional,
             )
             return response
         except Exception as e:
             error_str = str(e)
-            if 'ThrottlingException' in error_str or 'TooManyRequestsException' in error_str:
+            if "ThrottlingException" in error_str or "TooManyRequestsException" in error_str:
                 if attempt < max_retries - 1:
-                    wait_time = (2 ** attempt) + (0.1 * attempt)  # Exponential backoff
+                    wait_time = (2 ** attempt) + (0.1 * attempt)
                     print(f"Bedrock throttled, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
                     time.sleep(wait_time)
                     continue
@@ -83,7 +123,7 @@ def _log_timing(stage: str, tool: str, t_start: float, t_end: float = None, extr
 def generate_architecture_overview(prompt: str) -> dict:
     """
     Generate a comprehensive architecture overview from requirements.
-    Returns markdown with reasoning, component details, and ASCII diagram with AWS icons.
+    Returns markdown with reasoning and component details.
     """
     t0 = time.time()
     try:
@@ -95,28 +135,23 @@ OUTPUT LIMIT: Keep the entire response under 5000 tokens. Use bullet points and 
 
 Include:
 1. Executive Summary (2 sentences)
-2. Architecture Diagram (ASCII with AWS emojis: 🌐 ALB, 🖥️ EC2, 📦 S3, 🗄️ RDS, λ Lambda, 🔐 IAM)
-3. Component List (service + purpose only)
+2. Component List (service + purpose only)
 
 
 Do NOT include estimated cost, pricing, or monthly cost in the overview."""
         user_message = f"""Create a concise architecture overview (under 5000 tokens) for: {prompt}"""
         t_bedrock = time.time()
-        response = call_bedrock_with_retry(
-            bedrock,
-            'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
-            {
-                'anthropic_version': 'bedrock-2023-05-31',
-                'max_tokens': 5000,
-                'system': system_prompt,
-                'messages': [{'role': 'user', 'content': user_message}]
-            }
+        response = converse_with_retry(
+            bedrock, BEDROCK_MODEL_ID, system_prompt, user_message, max_tokens=5000
         )
         _log_timing("bedrock_invoke", "generate_architecture_overview", t_bedrock)
-        response_body = json.loads(response['body'].read())
-        overview = response_body['content'][0]['text']
+        out = _extract_content_from_converse_response(response)
+        overview = out["text"]
         _log_timing("total", "generate_architecture_overview", t0, extra=f"output_tokens~{len(overview.split())}")
-        return {'success': True, 'overview': overview}
+        result = {'success': True, 'overview': overview}
+        if out.get("thinking"):
+            result["thinking"] = out["thinking"]
+        return result
     except Exception as e:
         _log_timing("total", "generate_architecture_overview", t0)
         return {'success': False, 'error': str(e)}
@@ -174,29 +209,25 @@ Verify all Ref and GetAtt references point to defined resources.
 
 Return ONLY the template."""
         t_bedrock = time.time()
-        response = call_bedrock_with_retry(
-            bedrock,
-            'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
-            {
-                'anthropic_version': 'bedrock-2023-05-31',
-                'max_tokens': 16384,
-                'system': system_prompt,
-                'messages': [{'role': 'user', 'content': user_message}]
-            }
+        response = converse_with_retry(
+            bedrock, BEDROCK_MODEL_ID, system_prompt, user_message, max_tokens=16384
         )
         _log_timing("bedrock_invoke", "build_cfn_template", t_bedrock)
-        response_body = json.loads(response['body'].read())
-        template_str = response_body['content'][0]['text'].strip()
+        out = _extract_content_from_converse_response(response)
+        template_str = out["text"].strip()
         if template_str.startswith('```'):
             lines = template_str.split('\n')
             template_str = '\n'.join(lines[1:-1])
         _log_timing("total", "build_cfn_template", t0, extra=f"output_lines={len(template_str.splitlines())}")
-        return {
+        result = {
             'success': True,
             'template': template_str,
             'format': format,
             'prompt': prompt
         }
+        if out.get("thinking"):
+            result["thinking"] = out["thinking"]
+        return result
     except Exception as e:
         _log_timing("total", "build_cfn_template", t0)
         return {'success': False, 'error': str(e)}
@@ -478,19 +509,11 @@ Common fixes:
 
 Return ONLY the corrected template."""
 
-            response = call_bedrock_with_retry(
-                bedrock,
-                'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
-                {
-                    'anthropic_version': 'bedrock-2023-05-31',
-                    'max_tokens': 16384,  # Match template generation
-                    'system': system_prompt,
-                    'messages': [{'role': 'user', 'content': user_message}]
-                }
+            response = converse_with_retry(
+                bedrock, BEDROCK_MODEL_ID, system_prompt, user_message, max_tokens=16384
             )
-            
-            response_body = json.loads(response['body'].read())
-            fixed_template = response_body['content'][0]['text'].strip()
+            out = _extract_content_from_converse_response(response)
+            fixed_template = out["text"].strip()
             
             # Clean up markdown code blocks
             if fixed_template.startswith('```'):
@@ -500,7 +523,7 @@ Return ONLY the corrected template."""
             # Validate the fixed template
             try:
                 cfn.validate_template(TemplateBody=fixed_template)
-                return {
+                result = {
                     'success': True,
                     'valid': True,
                     'fixed': True,
@@ -508,6 +531,9 @@ Return ONLY the corrected template."""
                     'template': fixed_template,
                     'message': 'Template automatically fixed and validated successfully!'
                 }
+                if out.get("thinking"):
+                    result["thinking"] = out["thinking"]
+                return result
             except Exception as revalidation_error:
                 return {
                     'success': False,
@@ -703,24 +729,14 @@ Based on the architecture and findings above, provide:
 
 IMPORTANT: Reference the specific architecture components and findings. Don't provide generic cost advice."""
 
-        response = call_bedrock_with_retry(
-            bedrock,
-            'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
-            {
-                'anthropic_version': 'bedrock-2023-05-31',
-                'max_tokens': 4096,
-                'system': system_prompt,
-                'messages': [{'role': 'user', 'content': user_message}]
-            }
+        response = converse_with_retry(
+            bedrock, BEDROCK_MODEL_ID, system_prompt, user_message, max_tokens=4096
         )
-        
-        response_body = json.loads(response['body'].read())
-        analysis = response_body['content'][0]['text']
-        
-        return {
-            'success': True,
-            'analysis': analysis
-        }
+        out = _extract_content_from_converse_response(response)
+        result = {'success': True, 'analysis': out["text"]}
+        if out.get("thinking"):
+            result["thinking"] = out["thinking"]
+        return result
     except Exception as e:
         return {'success': False, 'error': str(e)}
 
@@ -752,24 +768,14 @@ For each area: Assessment, Risks, Recommendations (High/Medium/Low priority)"""
 
 For each area: Assessment, Strengths, Risks, Recommendations (priority)"""
 
-        response = call_bedrock_with_retry(
-            bedrock,
-            'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
-            {
-                'anthropic_version': 'bedrock-2023-05-31',
-                'max_tokens': 1500,  # Reduced from 4096
-                'system': system_prompt,
-                'messages': [{'role': 'user', 'content': user_message}]
-            }
+        response = converse_with_retry(
+            bedrock, BEDROCK_MODEL_ID, system_prompt, user_message, max_tokens=1500
         )
-        
-        response_body = json.loads(response['body'].read())
-        review = response_body['content'][0]['text']
-        
-        return {
-            'success': True,
-            'review': review
-        }
+        out = _extract_content_from_converse_response(response)
+        result = {'success': True, 'review': out["text"]}
+        if out.get("thinking"):
+            result["thinking"] = out["thinking"]
+        return result
     except Exception as e:
         return {'success': False, 'error': str(e)}
 

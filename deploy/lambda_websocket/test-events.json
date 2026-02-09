@@ -1,0 +1,51 @@
+{
+  "comment": "Save these as Lambda test events in the AWS Console: Lambda > cfn-builder-websocket > Test tab > Create new event",
+  "events": {
+    "1_default_websocket_message": {
+      "description": "Simulates a WebSocket client sending a tool call. Lambda returns 200 and async-invokes itself (no live connection needed for this test).",
+      "event": {
+        "requestContext": {
+          "routeKey": "$default",
+          "connectionId": "test-connection-123",
+          "domainName": "9h32jjkhg3.execute-api.us-east-1.amazonaws.com",
+          "stage": "prod"
+        },
+        "body": "{\"id\": \"test-1\", \"tool\": \"generate_architecture_overview\", \"arguments\": {\"prompt\": \"Simple 3-tier web app\"}}"
+      }
+    },
+    "2_async_processing_direct_mcp_call": {
+      "description": "Simulates the async invocation: calls AgentCore directly. Replace domainName with your WebSocket API domain (from stack output). post_to_connection will fail with fake connectionId but AgentCore call runs; check CloudWatch logs for result.",
+      "event": {
+        "async_processing": {
+          "tool": "generate_architecture_overview",
+          "arguments": { "prompt": "Simple 3-tier web app with ALB, EC2, RDS" },
+          "requestId": "test-req-1",
+          "connectionId": "test-connection-123",
+          "event": {
+            "requestContext": {
+              "domainName": "9h32jjkhg3.execute-api.us-east-1.amazonaws.com",
+              "stage": "prod"
+            }
+          }
+        }
+      }
+    },
+    "3_async_short_overview": {
+      "description": "Quick AgentCore test (short prompt). Replace domainName with your API domain.",
+      "event": {
+        "async_processing": {
+          "tool": "generate_architecture_overview",
+          "arguments": { "prompt": "One EC2 instance and one S3 bucket" },
+          "requestId": "test-short-1",
+          "connectionId": "test-connection-123",
+          "event": {
+            "requestContext": {
+              "domainName": "9h32jjkhg3.execute-api.us-east-1.amazonaws.com",
+              "stage": "prod"
+            }
+          }
+        }
+      }
+    }
+  }
+}

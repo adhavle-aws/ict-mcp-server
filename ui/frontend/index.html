@@ -899,6 +899,9 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                     if (message.type === 'progress') {
                         callbacks.onProgress?.(message);
                     } else if (message.type === 'response') {
+                        if (message.data && message.data.thinking) {
+                            console.log('🧠 Thinking:', message.data.thinking);
+                        }
                         callbacks.onComplete?.(message.data);
                         requestCallbacks.delete(requestId);
                     } else if (message.type === 'error') {

@@ -1,0 +1,5 @@
+# Environment variables with secrets
+.env
+
+# Do not ignore the example file
+!.env.example

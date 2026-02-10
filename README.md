@@ -4,12 +4,16 @@ AI-powered infrastructure design platform that transforms natural language into 
 
 ## Features
 
-- 🏗️ **Natural Language to CloudFormation** - Generate templates from plain English
+- 🏗️ **Natural Language to CloudFormation** - Generate templates from plain English (Bedrock Converse API, Claude Haiku 4.5)
+- 📋 **Architecture Overview** - Fast first-step overview (no extended thinking); then full template generation
 - 📊 **Professional Architecture Diagrams** - Auto-generate visual diagrams with AWS official icons
-- ✅ **Template Validation** - Validate against AWS CloudFormation API
+- ✅ **Template Validation** - Validate against AWS CloudFormation API with optional auto-fix
 - 💰 **Cost Optimization** - AI-powered cost analysis and recommendations
 - 🏛️ **Well-Architected Review** - Automated 6-pillar framework review
 - 🚀 **Stack Provisioning** - Deploy validated templates directly to AWS
+- ⏱️ **Tool timings** - Per-tool elapsed time shown in the UI (Design page)
+- 🧠 **Extended thinking (CoT)** - Reasoning returned for tools that use it (e.g. cost, review); logged in browser console
+- 🤖 **DevOps Agent** - Sidebar page with links to AWS DevOps Agent (standalone and Salesforce UI)
 
 ## Architecture
 
@@ -18,9 +22,11 @@ AI-powered infrastructure design platform that transforms natural language into 
 │                         User Interface                           │
 │                    (AWS Console-style Web UI)                    │
 │  • Natural language input                                        │
-│  • 4 tabs: Architecture (Canvas/Resources), Cost, Template,      │
-│    Well-Architected Review                                       │
-│  • Professional diagram display with AWS icons                   │
+│  • Design Agent: Architecture Overview + CloudFormation Template │
+│  • Deployment Agent: Provision / delete stacks                    │
+│  • DevOps Agent: Links to AWS DevOps Agent                        │
+│  • How-to Guide: Agentforce integration                          │
+│  • Tool timings and progress over WebSocket                       │
 └────────────────────────┬────────────────────────────────────────┘
                          │ WebSocket (WSS)
                          │ No timeout limits
@@ -58,53 +64,27 @@ AI-powered infrastructure design platform that transforms natural language into 
 │  • Observability: CloudWatch + X-Ray                            │
 └────────────────────────┬────────────────────────────────────────┘
                          │
-                         │ 6 MCP Tools
+                         │ MCP Tools
                          │
 ┌────────────────────────▼────────────────────────────────────────┐
 │                    MCP Tools Layer                               │
+│  (Bedrock via Converse API; default model: Claude Haiku 4.5)     │
 │                                                                  │
-│  1. build_cfn_template                                          │
-│     • Input: Natural language prompt                            │
-│     • Uses: Claude Sonnet 3.5 (Bedrock)                        │
-│     • Output: CloudFormation YAML/JSON                          │
-│     • Time: 5-10 seconds                                        │
-│                                                                  │
-│  2. generate_architecture_diagram ⭐ NEW                         │
-│     • Input: CloudFormation template                            │
-│     • Uses: Python diagrams + GraphViz                          │
-│     • Output: Professional PNG with AWS icons (base64)          │
-│     • Time: 2-5 seconds                                         │
-│                                                                  │
-│  3. validate_cfn_template                                       │
-│     • Input: CloudFormation template                            │
-│     • Uses: AWS CloudFormation ValidateTemplate API             │
-│     • Output: Validation results + required capabilities        │
-│     • Time: 1-2 seconds                                         │
-│                                                                  │
-│  4. analyze_cost_optimization                                   │
-│     • Input: CloudFormation template                            │
-│     • Uses: Claude Sonnet 3.5 (Bedrock)                        │
-│     • Output: Cost drivers + optimization recommendations       │
-│     • Time: 5-10 seconds                                        │
-│                                                                  │
-│  5. well_architected_review                                     │
-│     • Input: CloudFormation template                            │
-│     • Uses: Claude Sonnet 3.5 (Bedrock)                        │
-│     • Output: 6-pillar review + recommendations                 │
-│     • Time: 10-15 seconds                                       │
-│                                                                  │
-│  6. provision_cfn_stack                                         │
-│     • Input: Stack name + template                              │
-│     • Uses: AWS CloudFormation CreateStack/UpdateStack          │
-│     • Output: Stack ID + status                                 │
-│     • Time: 2-5 seconds                                         │
+│  • generate_architecture_overview  – Fast overview (no CoT)     │
+│  • build_cfn_template             – CloudFormation YAML/JSON     │
+│    (no extended thinking for speed; validate + auto_fix as needed)│
+│  • validate_cfn_template          – Validate + optional auto-fix │
+│  • estimate_infrastructure_cost   – Cost analysis (with CoT)     │
+│  • well_architected_review        – 6-pillar review (with CoT)   │
+│  • provision_cfn_stack / delete_cfn_stack / get_cfn_stack_events │
+│  • generate_architecture_diagram  – PNG with AWS icons (GraphViz) │
 └────────────────────────┬────────────────────────────────────────┘
                          │
                          │ boto3 SDK
                          │
 ┌────────────────────────▼────────────────────────────────────────┐
 │                      AWS Services                                │
-│  • Amazon Bedrock (Claude Sonnet 3.5)                           │
+│  • Amazon Bedrock (Converse API; Claude Haiku 4.5 default)       │
 │  • AWS CloudFormation                                           │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -127,7 +107,7 @@ AI-powered infrastructure design platform that transforms natural language into 
 - ✅ **AgentCore Auto-Scales** - Serverless container platform
 - ✅ **Lambda Concurrent** - Handles multiple connections
 - ✅ **WebSocket Persistent** - Efficient connection reuse
-- ✅ **No Cold Starts** - AgentCore keeps containers warm
+- ✅ **AgentCore lifecycle** - Containers kept warm per session (idle timeout ~15 min); see `docs/COLD_START_AND_PREWARM.md` for tuning
 
 ## Quick Start
 
@@ -201,14 +181,15 @@ If you use the WebSocket stack, run from project root (scripts use profile aws-g
 
 ### Available Tools
 
-All 6 tools are live and functional:
+All tools are live and functional:
 
-1. ✅ `build_cfn_template` - Generate CloudFormation from natural language
-2. ✅ `generate_architecture_diagram` - Create professional PNG diagrams ⭐ NEW
-3. ✅ `validate_cfn_template` - Validate templates via AWS API
-4. ✅ `analyze_cost_optimization` - AI-powered cost analysis
+1. ✅ `generate_architecture_overview` - Fast architecture overview (no extended thinking)
+2. ✅ `build_cfn_template` - Generate CloudFormation from natural language (optimized for speed)
+3. ✅ `validate_cfn_template` - Validate templates via AWS API (with optional auto-fix)
+4. ✅ `estimate_infrastructure_cost` - AI-powered cost analysis
 5. ✅ `well_architected_review` - Well-Architected Framework review
-6. ✅ `provision_cfn_stack` - Deploy stacks to AWS
+6. ✅ `provision_cfn_stack` / `delete_cfn_stack` / `get_cfn_stack_events` - Stack lifecycle
+7. ✅ `generate_architecture_diagram` - Professional PNG diagrams (GraphViz)
 
 ## Usage
 
@@ -323,7 +304,7 @@ For a serverless API with API Gateway, Lambda, and DynamoDB:
 
 ```
 cfn-mcp-server/
-├── mcp_server.py              # MCP server with 6 tools
+├── mcp_server.py              # MCP server (Converse API, tools for CFn + cost + review)
 ├── mcp_client.py              # Local test client
 ├── mcp_client_remote.py       # Remote client with IAM auth
 ├── streamable_http_sigv4.py   # SigV4 helper
@@ -419,10 +400,18 @@ For 10,000 requests/month:
 
 ## Documentation
 
+- `docs/architecture.md` - End-to-end architecture and request flow
+- `docs/COLD_START_AND_PREWARM.md` - Cold start mitigation and latency-optimized inference
+- `docs/PERFORMANCE_ANALYSIS.md` - Performance breakdown and optimization strategies
+- `deploy/TIMEOUT_FIX.md` - API Gateway 29s timeout and async Lambda pattern
 - `DEPLOYMENT_SUCCESS.md` - Deployment details
 - `DIAGRAM_INTEGRATION.md` - Diagram feature guide
-- `QUICK_START_DIAGRAMS.md` - Quick reference
-- `.kiro/steering/MCP Server.md` - Development guide
+- `salesforce_ui/README.md` - Deploy AWS Architect AI as a Visualforce page
+
+## Configuration (optional)
+
+- **`BEDROCK_MODEL_ID`** – Override Bedrock model (default: Claude Haiku 4.5). Example: `anthropic.claude-sonnet-4-5-20250929-v1:0`
+- **`BEDROCK_LATENCY_OPTIMIZED`** – Set to `true` to request latency-optimized inference when supported for your model/region (see `docs/COLD_START_AND_PREWARM.md`).
 
 ## Support
 
@@ -438,4 +427,4 @@ MIT
 
 ---
 
-**Status**: ✅ Deployed and operational with professional diagram generation
+**Status**: ✅ Deployed and operational. Architecture + template flow optimized for speed; tool timings and extended thinking (where enabled) in UI/console; Salesforce UI and DevOps Agent page supported.

@@ -89,6 +89,9 @@ def converse_with_retry(bedrock, model_id, system_prompt, user_message, max_toke
             }
             if additional is not None:
                 kwargs["additionalModelRequestFields"] = additional
+            # Latency-optimized inference (when supported for model/region). See docs/COLD_START_AND_PREWARM.md
+            if os.environ.get("BEDROCK_LATENCY_OPTIMIZED", "").lower() == "true":
+                kwargs["performanceConfig"] = {"latency": "optimized"}
             response = bedrock.converse(**kwargs)
             return response
         except Exception as e:

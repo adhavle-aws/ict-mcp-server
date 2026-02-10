@@ -68,13 +68,14 @@ def _extract_content_from_converse_response(response):
     return {"text": "".join(text_parts), "thinking": "".join(thinking_parts)}
 
 
-def converse_with_retry(bedrock, model_id, system_prompt, user_message, max_tokens=4096, max_retries=3, enable_thinking=True):
+def converse_with_retry(bedrock, model_id, system_prompt, user_message, max_tokens=4096, max_retries=3, enable_thinking=True, thinking_budget=4096):
     """Call Bedrock Converse API with exponential backoff retry. Returns the raw response dict.
     When enable_thinking=True: uses extended thinking (CoT) via additionalModelRequestFields; temperature omitted.
-    When enable_thinking=False: no thinking, uses temperature for faster/simpler tasks (e.g. architecture overview)."""
+    When enable_thinking=False: no thinking, uses temperature for faster/simpler tasks (e.g. architecture overview).
+    thinking_budget: max tokens for reasoning when enable_thinking=True (min 1024); lower = faster, higher = more reasoning."""
     if enable_thinking:
         inference_config = {"maxTokens": max_tokens}
-        additional = {"thinking": {"type": "enabled", "budget_tokens": 4096}}
+        additional = {"thinking": {"type": "enabled", "budget_tokens": max(1024, thinking_budget)}}
     else:
         inference_config = {"maxTokens": max_tokens, "temperature": 0.2}
         additional = None
@@ -184,45 +185,21 @@ def build_cfn_template(prompt: str, format: str = "yaml") -> dict:
     t0 = time.time()
     try:
         bedrock = get_bedrock_client()
-        system_prompt = """CloudFormation expert. Generate VALID, correct templates.
+        # Condensed prompt: same rules, fewer tokens for faster input and focused output
+        system_prompt = """CloudFormation expert. Generate VALID templates only.
 
-CRITICAL: When referencing AMI IDs via SSM Parameter Store, use ONLY these exact paths:
+AMI paths (SSM): Use ONLY /aws/service/ami-amazon-linux-latest/ (e.g. al2023-ami-kernel-6.1-x86_64, al2023-ami-kernel-6.1-arm64). NEVER /aws/service/ami-amazon-linux-2023/.
 
-Amazon Linux 2023 (x86_64):
-  /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
-
-Amazon Linux 2023 (ARM64):
-  /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-arm64
-
-Amazon Linux 2 (use standard paths under /aws/service/ami-amazon-linux-latest/ as needed).
-
-NEVER use /aws/service/ami-amazon-linux-2023/ - this path does not exist.
-
-CRITICAL Rules:
-1. ALL resource references (Ref, GetAtt, DependsOn) MUST point to resources defined in the template
-2. Check every Ref and GetAtt - ensure the resource exists
-3. Use correct resource names (case-sensitive)
-4. Include AWSTemplateFormatVersion: '2010-09-09'
-5. Return ONLY valid YAML/JSON, no explanations
-
-Resource identifier length limits (AWS enforces these; long names cause CREATE_FAILED):
-- RDS DBInstanceIdentifier: max 63 characters. Must start with a letter; only a-z, A-Z, 0-9, hyphens. Use a SHORT value e.g. "appdb" or "mydb01", NOT stack name + "-database" (stack names can be 80+ chars).
-- Same for other identifiers with 63-char limits where applicable (e.g. keep DB cluster identifiers short).
-
-CRITICAL - Use latest supported versions (especially RDS):
-- RDS: Always set EngineVersion to the latest stable minor for the chosen engine. Prefer: MySQL 8.0.43, PostgreSQL 16.x or 15.x latest, MariaDB 10.11+, Aurora MySQL 3.04+, Aurora PostgreSQL 15.x/16.x. Do NOT use deprecated or old versions (e.g. avoid MySQL 5.7, PostgreSQL 12 or older unless explicitly required).
-- Lambda: Use runtime identifiers that are current (e.g. python3.12, nodejs20.x, java17).
-- Other versioned resources: Prefer latest stable versions; avoid deprecated or end-of-life versions."""
+Rules: (1) Every Ref, GetAtt, DependsOn must reference a resource defined in this template. (2) AWSTemplateFormatVersion: '2010-09-09'. (3) Return ONLY YAML or JSON, no commentary.
+Identifiers: RDS DBInstanceIdentifier max 63 chars, start with letter; use short names e.g. "appdb", "mydb01".
+Versions: RDS use latest stable (MySQL 8.0.43, PostgreSQL 16.x/15.x, Aurora 3.04+). Lambda use python3.12, nodejs20.x. No deprecated versions."""
         user_message = f"""Generate a CloudFormation template for: {prompt}
 
-Format: {format.upper()}
-
-Verify all Ref and GetAtt references point to defined resources.
-
-Return ONLY the template."""
+Format: {format.upper()}. Verify every Ref and GetAtt points to a defined resource. Return ONLY the template."""
         t_bedrock = time.time()
+        # No thinking for speed (~20-40s saved). Rules in prompt keep quality; validate_cfn_template + auto_fix correct any errors.
         response = converse_with_retry(
-            bedrock, BEDROCK_MODEL_ID, system_prompt, user_message, max_tokens=16384
+            bedrock, BEDROCK_MODEL_ID, system_prompt, user_message, max_tokens=8192, enable_thinking=False
         )
         _log_timing("bedrock_invoke", "build_cfn_template", t_bedrock)
         out = _extract_content_from_converse_response(response)

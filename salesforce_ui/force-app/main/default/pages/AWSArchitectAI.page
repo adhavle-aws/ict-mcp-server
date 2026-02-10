@@ -375,6 +375,37 @@
             text-align: left;
         }
         
+        /* DevOps Agent Page */
+        .devops-open-container {
+            padding: 1.5rem 2rem 2rem;
+            overflow: auto;
+        }
+        .devops-features {
+            max-width: 640px;
+            margin-bottom: 1.5rem;
+        }
+        .devops-features-h {
+            font-size: 1rem;
+            margin: 1rem 0 0.4rem 0;
+            color: #232f3e;
+        }
+        .devops-features ul {
+            margin: 0 0 0.5rem 0;
+            padding-left: 1.25rem;
+            font-size: 0.9rem;
+            color: #444;
+            line-height: 1.45;
+        }
+        .devops-buttons {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+        .devops-open-btn {
+            display: inline-block;
+            text-decoration: none;
+        }
+        
         /* Guide Page Specific */
         #guidePage h1 {
             color: var(--aws-squid-ink);
@@ -457,6 +488,11 @@
                     <div class="menu-item-desc">Deploy CloudFormation stacks</div>
                 </div>
                 
+                <div class="menu-item" id="devopsMenu" onclick="showPage('devops')">
+                    <div class="menu-item-title">DevOps Agent</div>
+                    <div class="menu-item-desc">Frontier agent that resolves and proactively prevents incidents</div>
+                </div>
+                
                 <div class="menu-item" id="guideMenu" onclick="showPage('guide')">
                     <div class="menu-item-title">How-to Guide</div>
                     <div class="menu-item-desc">Agentforce integration</div>
@@ -517,6 +553,7 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                     <button class="aws-button aws-button-primary" onclick="generateInfrastructure()" id="sendBtn">
                         Generate
                     </button>
+                    <div id="toolTimings" style="font-size: 0.85rem; color: #666; margin-top: 0.5rem; min-height: 1.5rem;" aria-live="polite"></div>
                 </div>
             </div>
 
@@ -547,6 +584,41 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                             <h3 style="margin: 0 0 0.75rem 0; font-size: 1rem;">Stack outputs</h3>
                             <div id="stackOutputsContent"></div>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DevOps Agent Page -->
+            <div id="devopsPage" style="display: none; flex-direction: column; height: 100%;">
+                <div class="header">
+                    <h1>AWS DevOps Agent</h1>
+                    <p style="font-size: 0.9rem; color: #666; margin-top: 0.25rem;">Frontier agent that resolves and proactively prevents incidents</p>
+                </div>
+                <div class="devops-open-container">
+                    <div class="devops-features">
+                        <h3 class="devops-features-h">Always on, autonomous incident response</h3>
+                        <ul>
+                            <li>Automated investigations from ticketing and alarms (e.g. ServiceNow)</li>
+                            <li>Interactive chat and coordination via Slack, ServiceNow; create AWS Support cases from investigations</li>
+                            <li>Root cause analysis using observability tools, code repos, and CI/CD data</li>
+                            <li>Detailed mitigation plans: resolve, validate, revert; agent-ready instructions for frontier agents (e.g. Kiro)</li>
+                        </ul>
+                        <h3 class="devops-features-h">Proactively prevent future incidents</h3>
+                        <ul>
+                            <li>Targeted recommendations: observability, infrastructure optimization, deployment pipeline, application resilience</li>
+                            <li>Detect issues early; refine alarms and coverage to reduce MTTD</li>
+                            <li>Continuous learning from your team's feedback</li>
+                        </ul>
+                        <h3 class="devops-features-h">Get more from your DevOps tools</h3>
+                        <ul>
+                            <li>Application resource mapping and topology</li>
+                            <li>Built-in integrations: CloudWatch, Dynatrace, Datadog, New Relic, Splunk; GitHub, GitLab</li>
+                            <li>Connect your own MCP server for custom tools, Grafana, Prometheus, Confluence, etc.</li>
+                        </ul>
+                    </div>
+                    <div class="devops-buttons">
+                        <a class="aws-button aws-button-primary devops-open-btn" href="https://aws.amazon.com/devops-agent/features/" target="_blank" rel="noopener">Open features (new tab)</a>
+                        <a class="aws-button aws-button-secondary devops-open-btn" href="https://us-east-1.console.aws.amazon.com/aidevops/home?region=us-east-1" target="_blank" rel="noopener">Open DevOps Agent console</a>
                     </div>
                 </div>
             </div>
@@ -750,9 +822,10 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
             if (pageName === 'deployment' && !templateValidatedSuccessfully) return;
             document.getElementById('designPage').style.display = pageName === 'design' ? 'flex' : 'none';
             document.getElementById('deploymentPage').style.display = pageName === 'deployment' ? 'flex' : 'none';
+            document.getElementById('devopsPage').style.display = pageName === 'devops' ? 'flex' : 'none';
             document.getElementById('guidePage').style.display = pageName === 'guide' ? 'block' : 'none';
             
-            document.querySelectorAll('.menu-item').forEach(item => { item.classList.remove('active'); item.classList.remove('disabled'); });
+            document.querySelectorAll('.menu-item').forEach(function(item) { item.classList.remove('active'); item.classList.remove('disabled'); });
             const menuId = pageName === 'deployment' ? 'provisioningMenu' : pageName + 'Menu';
             const menu = document.getElementById(menuId);
             if (menu) menu.classList.add('active');
@@ -811,29 +884,60 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
             document.getElementById('guide-' + tabName).classList.add('active');
         }
         
+        // Tool timings: show elapsed time for each tool (last 8)
+        var toolTimingsList = [];
+        var TOOL_DISPLAY_NAMES = {
+            generate_architecture_overview: 'Architecture',
+            build_cfn_template: 'Template',
+            validate_cfn_template: 'Validate',
+            provision_cfn_stack: 'Provision',
+            delete_cfn_stack: 'Delete',
+            get_cfn_stack_events: 'Stack events',
+            estimate_infrastructure_cost: 'Cost',
+            well_architected_review: 'Review'
+        };
+        function updateToolTimingDisplay() {
+            var el = document.getElementById('toolTimings');
+            if (!el) return;
+            if (toolTimingsList.length === 0) { el.textContent = ''; return; }
+            el.textContent = '⏱ ' + toolTimingsList.map(function(t) { return t.name + ' ' + t.seconds + 's'; }).join('  ·  ');
+        }
+        function recordToolTiming(toolName, elapsedMs) {
+            var name = TOOL_DISPLAY_NAMES[toolName] || toolName;
+            var seconds = (elapsedMs / 1000).toFixed(1);
+            toolTimingsList.push({ name: name, seconds: seconds });
+            if (toolTimingsList.length > 8) toolTimingsList.shift();
+            updateToolTimingDisplay();
+        }
+
         // WebSocket Connection
         function initWebSocket() {
             ws = new WebSocket(WS_URL);
             
-            ws.onopen = () => console.log('✅ WebSocket connected');
+            ws.onopen = function() { console.log('✅ WebSocket connected'); };
             
-            ws.onmessage = (event) => {
-                const message = JSON.parse(event.data);
+            ws.onmessage = function(event) {
+                var message = JSON.parse(event.data);
                 console.log('📨 Received:', message);
                 
                 if (message.type === 'connected') return;
                 
-                const requestId = message.requestId;
+                var requestId = message.requestId;
                 if (requestId && requestCallbacks.has(requestId)) {
-                    const callbacks = requestCallbacks.get(requestId);
+                    var callbacks = requestCallbacks.get(requestId);
                     
                     if (message.type === 'progress') {
-                        callbacks.onProgress?.(message);
+                        if (callbacks.onProgress) callbacks.onProgress(message);
                     } else if (message.type === 'response') {
-                        callbacks.onComplete?.(message.data);
+                        var tool = message.tool || callbacks.toolName;
+                        if (callbacks.startTime != null && tool) recordToolTiming(tool, Date.now() - callbacks.startTime);
+                        if (message.data && message.data.thinking) console.log('🧠 Thinking:', message.data.thinking);
+                        if (callbacks.onComplete) callbacks.onComplete(message.data);
                         requestCallbacks.delete(requestId);
                     } else if (message.type === 'error') {
-                        callbacks.onError?.(message.error);
+                        var toolErr = message.tool || callbacks.toolName;
+                        if (callbacks.startTime != null && toolErr) recordToolTiming(toolErr + ' (error)', Date.now() - callbacks.startTime);
+                        if (callbacks.onError) callbacks.onError(message.error);
                         requestCallbacks.delete(requestId);
                     }
                 }
@@ -856,12 +960,14 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                     return;
                 }
                 
-                const requestId = Date.now().toString();
+                var requestId = Date.now().toString();
                 
                 requestCallbacks.set(requestId, {
-                    onProgress: (data) => console.log('Progress:', data),
-                    onComplete: (data) => resolve(data),
-                    onError: (error) => reject(new Error(error))
+                    startTime: Date.now(),
+                    toolName: toolName,
+                    onProgress: function(data) { console.log('Progress:', data); },
+                    onComplete: function(data) { resolve(data); },
+                    onError: function(error) { reject(new Error(error)); }
                 });
                 
                 ws.send(JSON.stringify({
@@ -897,8 +1003,8 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                 document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Waiting...</div>';
                 
                 const archResult = await callMcpTool('generate_architecture_overview', { prompt });
-                
                 if (!archResult.success) throw new Error(archResult.error);
+                if (!archResult.overview) throw new Error(archResult.error || 'No overview');
                 
                 document.getElementById('architectureContent').innerHTML = 
                     `<div class="markdown-content">${marked.parse(archResult.overview)}</div>`;

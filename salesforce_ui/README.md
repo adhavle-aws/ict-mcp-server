@@ -61,6 +61,8 @@ All features from the web version:
 - ✅ CloudFormation Template Generation
 - ✅ Template Validation
 - ✅ Example Prompts (3-Tier, Serverless, Data Pipeline, Microservices)
+- ✅ Tool timings (per-tool elapsed time under Generate button)
+- ✅ Thinking/reasoning in console when backend returns it
 
 ## Security
 

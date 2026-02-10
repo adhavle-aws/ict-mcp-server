@@ -13,7 +13,7 @@ const app = express();
 const PORT = 3001;
 
 // Configuration
-const AGENT_ARN = 'arn:aws:bedrock-agentcore:us-east-1:905767016260:runtime/mcp_server-CxkrO53RPH';
+const AGENT_ARN = 'arn:aws:bedrock-agentcore:us-east-1:611291728384:runtime/cfn_mcp_server-4KOBaDFd4a';
 const REGION = 'us-east-1';
 const SERVICE = 'bedrock-agentcore';
 

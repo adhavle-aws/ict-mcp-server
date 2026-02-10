@@ -78,7 +78,7 @@ def converse_with_retry(bedrock, model_id, system_prompt, user_message, max_toke
         additional = {"thinking": {"type": "enabled", "budget_tokens": max(1024, thinking_budget)}}
     else:
         inference_config = {"maxTokens": max_tokens, "temperature": 0.2}
-        additional = None
+        additional = None  # No additionalModelRequestFields = no extended thinking (faster)
     for attempt in range(max_retries):
         try:
             kwargs = {
@@ -188,9 +188,9 @@ def build_cfn_template(prompt: str, format: str = "yaml") -> dict:
     t0 = time.time()
     try:
         bedrock = get_bedrock_client()
+        print("[build_cfn_template] enable_thinking=False (speed-optimized)")
         # Condensed prompt: same rules, fewer tokens for faster input and focused output
         system_prompt = """CloudFormation expert. Generate VALID templates only.
-
 AMI paths (SSM): Use ONLY /aws/service/ami-amazon-linux-latest/ (e.g. al2023-ami-kernel-6.1-x86_64, al2023-ami-kernel-6.1-arm64). NEVER /aws/service/ami-amazon-linux-2023/.
 
 Rules: (1) Every Ref, GetAtt, DependsOn must reference a resource defined in this template. (2) AWSTemplateFormatVersion: '2010-09-09'. (3) Return ONLY YAML or JSON, no commentary.
@@ -200,9 +200,9 @@ Versions: RDS use latest stable (MySQL 8.0.43, PostgreSQL 16.x/15.x, Aurora 3.04
 
 Format: {format.upper()}. Verify every Ref and GetAtt points to a defined resource. Return ONLY the template."""
         t_bedrock = time.time()
-        # No thinking for speed (~20-40s saved). Rules in prompt keep quality; validate_cfn_template + auto_fix correct any errors.
+        # CRITICAL: enable_thinking=False for speed. With thinking this tool takes 60-70s; without, ~15-35s.
         response = converse_with_retry(
-            bedrock, BEDROCK_MODEL_ID, system_prompt, user_message, max_tokens=8192, enable_thinking=False
+            bedrock, BEDROCK_MODEL_ID, system_prompt, user_message, max_tokens=25000, enable_thinking=False
         )
         _log_timing("bedrock_invoke", "build_cfn_template", t_bedrock)
         out = _extract_content_from_converse_response(response)

@@ -829,8 +829,15 @@ def provision_cfn_stack(
         def _use_default_vpc_value(key):
             val = (user_params.get(key) or '').strip().lower()
             return not val or val == 'default'
-        # Check if we need to resolve VPC: either template has these params or client sent "default" for them
-        need_vpc = any(k for k in template_param_keys if _is_vpc_param_key(k)) or any(
+        # Check if we need to resolve VPC: template has these params (parsed or detected in body) or client sent them
+        template_has_vpc_params = any(k for k in template_param_keys if _is_vpc_param_key(k))
+        if not template_has_vpc_params and 'Parameters' in template_body:
+            # Fallback when parse failed: detect VPC params from template string so we still fill them
+            for name in ('VpcId', 'PublicSubnetIds', 'PrivateSubnetIds'):
+                if name in template_body:
+                    template_has_vpc_params = True
+                    break
+        need_vpc = template_has_vpc_params or any(
             _is_vpc_param_key(k) and _use_default_vpc_value(k) for k in user_params
         )
         if need_vpc:
@@ -850,13 +857,18 @@ def provision_cfn_stack(
                         user_params[key] = default_vpc_id
                     else:
                         user_params[key] = subnet_val
-                # Also set canonical keys if template has them (so required params are present)
+                # Set canonical keys so required params are present (from parsed keys or fallback)
                 for ckey in VPC_PARAM_KEYS:
-                    if ckey in template_param_keys and _use_default_vpc_value(ckey):
+                    if (ckey in template_param_keys or not template_param_keys) and _use_default_vpc_value(ckey):
                         if ckey == 'VpcId':
                             user_params[ckey] = default_vpc_id
                         else:
                             user_params[ckey] = subnet_val
+                # When parse failed, ensure we still send all three so CFN doesn't say "must have values"
+                if not template_param_keys:
+                    user_params['VpcId'] = default_vpc_id
+                    user_params['PublicSubnetIds'] = subnet_val
+                    user_params['PrivateSubnetIds'] = subnet_val
             for key in list(user_params.keys()):
                 if _is_vpc_param_key(key) and _use_default_vpc_value(key):
                     return {

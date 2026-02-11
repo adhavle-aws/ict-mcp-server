@@ -566,9 +566,10 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                         <label for="stackNameInput">Stack name <span style="font-weight: normal; color: #666;">(default: AgenticArchitect-{timestamp}, editable)</span></label>
                         <input type="text" id="stackNameInput" placeholder="AgenticArchitect-12345678" style="width: 100%; padding: 0.5rem; border: 1px solid var(--aws-border); border-radius: 4px; font-size: 1rem;" />
                     </div>
-                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0;">
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0; flex-wrap: wrap; align-items: center;">
                         <button class="aws-button aws-button-primary" onclick="provisionStack()" id="provisionBtn">Provision</button>
                         <button class="aws-button aws-button-secondary" onclick="deleteStack()" id="deleteStackBtn">Delete stack</button>
+                        <button class="aws-button aws-button-secondary" onclick="openInInfrastructureComposer()" id="openInComposerBtn" title="Download template and open AWS Infrastructure Composer">Open in Infrastructure Composer</button>
                     </div>
                     <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 200px;">
                         <label style="flex-shrink: 0;">CloudFormation progress</label>
@@ -1103,6 +1104,31 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
             const template = editor ? editor.getValue() : currentTemplate;
             navigator.clipboard.writeText(template);
             alert('Template copied to clipboard!');
+        }
+
+        // Open current template in AWS Infrastructure Composer (download + open console; Composer only supports file import)
+        const COMPOSER_CONSOLE_URL = 'https://console.aws.amazon.com/composer/home?region=us-east-1';
+        function openInInfrastructureComposer() {
+            const template = (editor ? editor.getValue() : currentTemplate) || '';
+            if (!template.trim()) {
+                alert('Generate a template in Design Agent first.');
+                return;
+            }
+            const isJson = template.trim().startsWith('{');
+            const ext = isJson ? 'json' : 'yaml';
+            const filename = 'template.' + ext;
+            const blob = new Blob([template], { type: isJson ? 'application/json' : 'text/yaml' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(a.href);
+            window.open(COMPOSER_CONSOLE_URL, '_blank', 'noopener,noreferrer');
+            const progressEl = document.getElementById('stackProgress');
+            if (progressEl) {
+                const prev = progressEl.textContent;
+                progressEl.textContent = prev + '\n\nTemplate saved as ' + filename + '. In Composer: Menu → Open → Template file, then select the downloaded file.';
+            }
         }
 
         // Deployment Agent: Provision stack and show CloudFormation progress

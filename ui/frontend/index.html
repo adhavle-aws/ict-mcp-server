@@ -536,7 +536,6 @@
                     <div class="example-prompts">
                         <span style="font-size: 0.9rem; color: #666; margin-right: 0.5rem;">Quick Examples:</span>
                         <button class="example-btn" onclick="useExample('quoting')">Quoting Agent</button>
-                        <button class="example-btn" onclick="useExample('3tier')">3-Tier Web App</button>
                         <button class="example-btn" onclick="useExample('serverless')">Serverless API</button>
                         <button class="example-btn" onclick="useExample('data')">Data Pipeline</button>
                         <button class="example-btn" onclick="useExample('microservices')">Microservices</button>
@@ -1332,14 +1331,6 @@ Q: Anything else you want us to consider?
 A: Yes, we want to have minimal operations and cost overhead. And one more thing, this app is very CPU intensive.
 
 Create the infrastructure for this application.`,
-                
-                '3tier': `Create a highly available 3-tier web application in us-east-1 with:
-- Web tier: Application Load Balancer with Auto Scaling EC2 instances
-- Application tier: EC2 instances in private subnets with Auto Scaling
-- Database tier: RDS PostgreSQL with Multi-AZ deployment
-- Network: VPC with public and private subnets across 2 AZs
-- Security: WAF, Security Groups, and NACLs
-- Monitoring: CloudWatch dashboards and alarms`,
                 
                 'serverless': `Create a serverless REST API in us-east-1 with:
 - API Gateway for HTTP endpoints

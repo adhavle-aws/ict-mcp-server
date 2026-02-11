@@ -1,5 +1,4 @@
 <apex:page showHeader="false" sidebar="false" standardStylesheets="false">
-
 <html lang="en">
 <head>
     <meta charset="UTF-8"/>
@@ -102,6 +101,36 @@
         .menu-item-desc {
             font-size: 0.75rem;
             opacity: 0.7;
+        }
+        
+        .devops-open-container {
+            padding: 1.5rem 2rem 2rem;
+            overflow: auto;
+        }
+        .devops-features {
+            max-width: 640px;
+            margin-bottom: 1.5rem;
+        }
+        .devops-features-h {
+            font-size: 1rem;
+            margin: 1rem 0 0.4rem 0;
+            color: #232f3e;
+        }
+        .devops-features ul {
+            margin: 0 0 0.5rem 0;
+            padding-left: 1.25rem;
+            font-size: 0.9rem;
+            color: #444;
+            line-height: 1.45;
+        }
+        .devops-buttons {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+        .devops-open-btn {
+            display: inline-block;
+            text-decoration: none;
         }
         
         /* Main Content */
@@ -375,37 +404,6 @@
             text-align: left;
         }
         
-        /* DevOps Agent Page */
-        .devops-open-container {
-            padding: 1.5rem 2rem 2rem;
-            overflow: auto;
-        }
-        .devops-features {
-            max-width: 640px;
-            margin-bottom: 1.5rem;
-        }
-        .devops-features-h {
-            font-size: 1rem;
-            margin: 1rem 0 0.4rem 0;
-            color: #232f3e;
-        }
-        .devops-features ul {
-            margin: 0 0 0.5rem 0;
-            padding-left: 1.25rem;
-            font-size: 0.9rem;
-            color: #444;
-            line-height: 1.45;
-        }
-        .devops-buttons {
-            display: flex;
-            gap: 0.75rem;
-            flex-wrap: wrap;
-        }
-        .devops-open-btn {
-            display: inline-block;
-            text-decoration: none;
-        }
-        
         /* Guide Page Specific */
         #guidePage h1 {
             color: var(--aws-squid-ink);
@@ -542,7 +540,9 @@
                     
                     <textarea 
                         id="promptInput" 
-                        placeholder="Describe your infrastructure requirements or use the Quoting Agent example above."
+                        placeholder="Describe your infrastructure requirements...
+
+Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-east-1"
                     ></textarea>
                     <button class="aws-button aws-button-primary" onclick="generateInfrastructure()" id="sendBtn">
                         Generate
@@ -559,21 +559,17 @@
                 </div>
                 <div style="padding: 1.5rem 2rem; flex: 1; display: flex; flex-direction: column; overflow: hidden;">
                     <div class="input-section" style="flex-shrink: 0;">
-                        <label for="stackNameInput">Stack name <span style="font-weight: normal; color: #666;">(auto-generated from template, editable)</span></label>
-                        <input type="text" id="stackNameInput" placeholder="Generated when you have a template" style="width: 100%; padding: 0.5rem; border: 1px solid var(--aws-border); border-radius: 4px; font-size: 1rem;" />
+                        <label for="stackNameInput">Stack name <span style="font-weight: normal; color: #666;">(default: AgenticArchitect-{timestamp}, editable)</span></label>
+                        <input type="text" id="stackNameInput" placeholder="AgenticArchitect-12345678" style="width: 100%; padding: 0.5rem; border: 1px solid var(--aws-border); border-radius: 4px; font-size: 1rem;" />
                     </div>
-                    <div class="input-section" style="flex-shrink: 0;">
-                        <label for="stackParamsInput">Stack parameters <span style="font-weight: normal; color: #666;">(optional; password-type params get an initial value to change later)</span></label>
-                        <textarea id="stackParamsInput" placeholder='Optional overrides, e.g. {"DBUsername": "admin"}' rows="2" style="width: 100%; padding: 0.5rem; border: 1px solid var(--aws-border); border-radius: 4px; font-size: 0.9rem; font-family: monospace;"></textarea>
-                        <div id="stackParamsHint" style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;"></div>
-                    </div>
-                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0;">
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0; flex-wrap: wrap; align-items: center;">
                         <button class="aws-button aws-button-primary" onclick="provisionStack()" id="provisionBtn">Provision</button>
                         <button class="aws-button aws-button-secondary" onclick="deleteStack()" id="deleteStackBtn">Delete stack</button>
+                        <button class="aws-button aws-button-secondary" onclick="openInInfrastructureComposer()" id="openInComposerBtn" title="Download template and open AWS Infrastructure Composer">Open in Infrastructure Composer</button>
                     </div>
                     <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 200px;">
                         <label style="flex-shrink: 0;">CloudFormation progress</label>
-                        <pre id="stackProgress" style="flex: 1; overflow: auto; background: #232f3e; color: #eaeded; padding: 1rem; border-radius: 4px; font-size: 0.85rem; margin: 0; white-space: pre-wrap; word-break: break-all;">No deployment in progress. Stack name is auto-generated. Click Provision to deploy.</pre>
+                        <pre id="stackProgress" style="flex: 1; overflow: auto; background: #232f3e; color: #eaeded; padding: 1rem; border-radius: 4px; font-size: 0.85rem; margin: 0; white-space: pre-wrap; word-break: break-all;">No deployment in progress. Default stack name: AgenticArchitect-{timestamp}. Click Provision to deploy.</pre>
                         <div id="stackOutputsSection" style="display: none; flex-shrink: 0; margin-top: 1rem; padding: 1rem; background: #f4f5f7; border-radius: 6px; border: 1px solid #dfe1e5;">
                             <h3 style="margin: 0 0 0.75rem 0; font-size: 1rem;">Stack outputs</h3>
                             <div id="stackOutputsContent"></div>
@@ -601,7 +597,7 @@
                         <ul>
                             <li>Targeted recommendations: observability, infrastructure optimization, deployment pipeline, application resilience</li>
                             <li>Detect issues early; refine alarms and coverage to reduce MTTD</li>
-                            <li>Continuous learning from your team's feedback</li>
+                            <li>Continuous learning from your team’s feedback</li>
                         </ul>
                         <h3 class="devops-features-h">Get more from your DevOps tools</h3>
                         <ul>
@@ -609,6 +605,17 @@
                             <li>Built-in integrations: CloudWatch, Dynatrace, Datadog, New Relic, Splunk; GitHub, GitLab</li>
                             <li>Connect your own MCP server for custom tools, Grafana, Prometheus, Confluence, etc.</li>
                         </ul>
+                        <h3 class="devops-features-h">Connect DevOps Agent to Salesforce</h3>
+                        <p style="margin-bottom: 0.5rem;">So DevOps Agent can read and update Salesforce Cases, register the Salesforce MCP Server with your DevOps Agent Space using the <code>devops-service-api</code> scripts:</p>
+                        <ol style="margin-left: 1.5rem; margin-bottom: 0.5rem;">
+                            <li>Create an Agent Space: <code>create_devops_agent_space.sh &lt;name&gt;</code></li>
+                            <li>In Salesforce: enable MCP Beta; create External Client App with callback <code>https://api.prod.cp.aidevops.us-east-1.api.aws/v1/register/mcpserver/callback</code></li>
+                            <li>Register and associate MCP: <code>register_salesforce_mcp.sh</code>, then <code>associate_salesforce_mcp.sh</code></li>
+                        </ol>
+                        <p style="font-size: 0.9rem; color: #666;">Full steps: <code>devops-service-api/Salesforce-DevOps-Setup.md</code></p>
+                        <h3 class="devops-features-h">Run a demo investigation</h3>
+                        <p style="margin-bottom: 0.5rem;">Trigger an ALB unhealthy investigation (CloudWatch → SNS → Lambda → DevOps Agent): run <code>./demo-trigger/trigger_alb_unhealthy_alarm.sh</code>. To investigate a Case and add a comment: <code>./demo-trigger/investigate_and_update_case.sh &lt;CaseNumber&gt;</code> (requires webhook and Salesforce MCP configured).</p>
+                        <p style="font-size: 0.9rem; color: #666;">Details: <code>demo-trigger/README-ALARM-TRIGGER.md</code></p>
                     </div>
                     <div class="devops-buttons">
                         <a class="aws-button aws-button-primary devops-open-btn" href="https://aws.amazon.com/devops-agent/features/" target="_blank" rel="noopener">Open features (new tab)</a>
@@ -749,9 +756,12 @@
                 <div id="guide-testing" class="tab-content">
                     <h2>Test Integration</h2>
                     
-                    <h3>Example Prompt</h3>
+                    <h3>Example Prompts</h3>
                     <ul>
-                        <li>Use the <strong>Quoting Agent</strong> button to load the sample conversation and generate infrastructure.</li>
+                        <li>"Create a serverless API"</li>
+                        <li>"Design a 3-tier web application"</li>
+                        <li>"Build a data pipeline"</li>
+                        <li>"Create a secure VPC"</li>
                     </ul>
                     
                     <h3>Troubleshooting</h3>
@@ -803,8 +813,7 @@
         let editor = null;
         let lastValidationCapabilities = [];
         let templateValidatedSuccessfully = false;
-        let stackProgressInterval = null;
-        
+
         // Initialize Monaco Editor
         require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' }});
         
@@ -816,7 +825,7 @@
             document.getElementById('devopsPage').style.display = pageName === 'devops' ? 'flex' : 'none';
             document.getElementById('guidePage').style.display = pageName === 'guide' ? 'block' : 'none';
             
-            document.querySelectorAll('.menu-item').forEach(function(item) { item.classList.remove('active'); item.classList.remove('disabled'); });
+            document.querySelectorAll('.menu-item').forEach(item => { item.classList.remove('active'); item.classList.remove('disabled'); });
             const menuId = pageName === 'deployment' ? 'provisioningMenu' : pageName + 'Menu';
             const menu = document.getElementById(menuId);
             if (menu) menu.classList.add('active');
@@ -824,37 +833,17 @@
             if (pageName === 'deployment') refreshGeneratedStackName();
         }
 
-        // Generate stack name from template (agentic: minimal human input)
-        function generateStackNameFromTemplate(template) {
-            if (!template || !template.trim()) return '';
-            const maxBaseLen = 80;
-            const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, maxBaseLen);
-            let base = 'stack';
-            try {
-                const t = template.trim();
-                const isJson = t.startsWith('{');
-                if (isJson) {
-                    const data = JSON.parse(template);
-                    if (data.Description) base = slug(String(data.Description));
-                } else {
-                    const descMatch = template.match(/^\s*Description\s*:\s*["']?([^"'\n|]+|.*?)["']?\s*$/m)
-                        || template.match(/^\s*Description\s*:\s*(.+?)(?=\n\w|\n\s*\n|$)/ms);
-                    if (descMatch) base = slug(descMatch[1].trim().replace(/\s+/g, ' '));
-                }
-            } catch (e) {}
-            if (!base || !/^[a-zA-Z]/.test(base)) base = 'stack-' + base;
-            const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-            const rnd = Math.random().toString(36).slice(2, 6);
-            return (base + '-' + date + '-' + rnd).replace(/-+/g, '-').slice(0, 128);
-        }
-
+        // Default stack name: AgenticArchitect-{timestamp} (8 digits)
         function refreshGeneratedStackName() {
-            const template = editor ? editor.getValue() : currentTemplate;
             const input = document.getElementById('stackNameInput');
             if (!input) return;
-            const name = generateStackNameFromTemplate(template);
-            if (name) input.value = name;
-            else input.placeholder = 'Generate a template in Design Agent first';
+            const template = editor ? editor.getValue() : currentTemplate;
+            if (template && template.trim()) {
+                const ts = Date.now().toString().slice(-8);
+                if (!input.value || input.value === input.placeholder) input.value = 'AgenticArchitect-' + ts;
+            } else {
+                input.placeholder = 'AgenticArchitect-12345678';
+            }
         }
         
         // Tab Navigation
@@ -865,7 +854,7 @@
             event.target.classList.add('active');
             document.getElementById(tabName).classList.add('active');
         }
-        
+
         // Guide Sub-tab Navigation
         function switchGuideTab(tabName) {
             document.querySelectorAll('#guidePage .tab').forEach(tab => tab.classList.remove('active'));
@@ -876,27 +865,29 @@
         }
         
         // Tool timings: show elapsed time for each tool (last 8)
-        var toolTimingsList = [];
-        var TOOL_DISPLAY_NAMES = {
+        const toolTimingsList = [];
+        const TOOL_DISPLAY_NAMES = {
             generate_architecture_overview: 'Architecture',
             build_cfn_template: 'Template',
+            get_resource_schema_information: 'Schema',
             validate_cfn_template: 'Validate',
             provision_cfn_stack: 'Provision',
             delete_cfn_stack: 'Delete',
-            get_cfn_stack_events: 'Stack events',
-            estimate_infrastructure_cost: 'Cost',
-            well_architected_review: 'Review'
+            get_cfn_stack_events: 'Stack events'
         };
         function updateToolTimingDisplay() {
-            var el = document.getElementById('toolTimings');
+            const el = document.getElementById('toolTimings');
             if (!el) return;
-            if (toolTimingsList.length === 0) { el.textContent = ''; return; }
-            el.textContent = '⏱ ' + toolTimingsList.map(function(t) { return t.name + ' ' + t.seconds + 's'; }).join('  ·  ');
+            if (toolTimingsList.length === 0) {
+                el.textContent = '';
+                return;
+            }
+            el.textContent = '⏱ ' + toolTimingsList.map(t => t.name + ' ' + t.seconds + 's').join('  ·  ');
         }
         function recordToolTiming(toolName, elapsedMs) {
-            var name = TOOL_DISPLAY_NAMES[toolName] || toolName;
-            var seconds = (elapsedMs / 1000).toFixed(1);
-            toolTimingsList.push({ name: name, seconds: seconds });
+            const name = TOOL_DISPLAY_NAMES[toolName] || toolName;
+            const seconds = (elapsedMs / 1000).toFixed(1);
+            toolTimingsList.push({ name, seconds });
             if (toolTimingsList.length > 8) toolTimingsList.shift();
             updateToolTimingDisplay();
         }
@@ -905,30 +896,36 @@
         function initWebSocket() {
             ws = new WebSocket(WS_URL);
             
-            ws.onopen = function() { console.log('✅ WebSocket connected'); };
+            ws.onopen = () => console.log('✅ WebSocket connected');
             
-            ws.onmessage = function(event) {
-                var message = JSON.parse(event.data);
+            ws.onmessage = (event) => {
+                const message = JSON.parse(event.data);
                 console.log('📨 Received:', message);
                 
                 if (message.type === 'connected') return;
                 
-                var requestId = message.requestId;
+                const requestId = message.requestId;
                 if (requestId && requestCallbacks.has(requestId)) {
-                    var callbacks = requestCallbacks.get(requestId);
+                    const callbacks = requestCallbacks.get(requestId);
                     
                     if (message.type === 'progress') {
-                        if (callbacks.onProgress) callbacks.onProgress(message);
+                        callbacks.onProgress?.(message);
                     } else if (message.type === 'response') {
-                        var tool = message.tool || callbacks.toolName;
-                        if (callbacks.startTime != null && tool) recordToolTiming(tool, Date.now() - callbacks.startTime);
-                        if (message.data && message.data.thinking) console.log('🧠 Thinking:', message.data.thinking);
-                        if (callbacks.onComplete) callbacks.onComplete(message.data);
+                        const tool = message.tool || callbacks.toolName;
+                        if (callbacks.startTime != null && tool) {
+                            recordToolTiming(tool, Date.now() - callbacks.startTime);
+                        }
+                        if (message.data && message.data.thinking) {
+                            console.log('🧠 Thinking:', message.data.thinking);
+                        }
+                        callbacks.onComplete?.(message.data);
                         requestCallbacks.delete(requestId);
                     } else if (message.type === 'error') {
-                        var toolErr = message.tool || callbacks.toolName;
-                        if (callbacks.startTime != null && toolErr) recordToolTiming(toolErr + ' (error)', Date.now() - callbacks.startTime);
-                        if (callbacks.onError) callbacks.onError(message.error);
+                        const tool = message.tool || callbacks.toolName;
+                        if (callbacks.startTime != null && tool) {
+                            recordToolTiming(tool + ' (error)', Date.now() - callbacks.startTime);
+                        }
+                        callbacks.onError?.(message.error);
                         requestCallbacks.delete(requestId);
                     }
                 }
@@ -951,14 +948,14 @@
                     return;
                 }
                 
-                var requestId = Date.now().toString();
+                const requestId = Date.now().toString();
                 
                 requestCallbacks.set(requestId, {
                     startTime: Date.now(),
                     toolName: toolName,
-                    onProgress: function(data) { console.log('Progress:', data); },
-                    onComplete: function(data) { resolve(data); },
-                    onError: function(error) { reject(new Error(error)); }
+                    onProgress: (data) => console.log('Progress:', data),
+                    onComplete: (data) => resolve(data),
+                    onError: (error) => reject(new Error(error))
                 });
                 
                 ws.send(JSON.stringify({
@@ -967,7 +964,7 @@
                     arguments: args
                 }));
                 
-                setTimeout(function() {
+                setTimeout(() => {
                     if (requestCallbacks.has(requestId)) {
                         requestCallbacks.delete(requestId);
                         reject(new Error('Request timed out (5 min)'));
@@ -1013,9 +1010,8 @@
                     prompt, 
                     format: 'yaml' 
                 });
-                
                 if (!templateResult.success) throw new Error(templateResult.error);
-                
+                if (!templateResult.template) throw new Error(templateResult.error || 'No template');
                 currentTemplate = templateResult.template;
                 
                 // Display template in Monaco Editor
@@ -1117,153 +1113,189 @@
             alert('Template copied to clipboard!');
         }
 
+        // Open current template in AWS Infrastructure Composer (download + open console; Composer only supports file import)
+        const COMPOSER_CONSOLE_URL = 'https://us-east-1.console.aws.amazon.com/composer/canvas?region=us-east-1';
+        function openInInfrastructureComposer() {
+            const template = (editor ? editor.getValue() : currentTemplate) || '';
+            if (!template.trim()) {
+                alert('Generate a template in Design Agent first.');
+                return;
+            }
+            navigator.clipboard.writeText(template).catch(() => {});
+            const isJson = template.trim().startsWith('{');
+            const ext = isJson ? 'json' : 'yaml';
+            const filename = 'template.' + ext;
+            const blob = new Blob([template], { type: isJson ? 'application/json' : 'text/yaml' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(a.href);
+            window.open(COMPOSER_CONSOLE_URL, '_blank', 'noopener,noreferrer');
+            const progressEl = document.getElementById('stackProgress');
+            if (progressEl) {
+                const prev = progressEl.textContent;
+                progressEl.textContent = prev + '\n\nTemplate copied to clipboard and saved as ' + filename + '. In Composer: open the template/code tab and paste (Ctrl+V or Cmd+V), or use Menu → Open → Template file and select the downloaded file.';
+            }
+        }
+
+        // Deployment Agent: Provision stack and show CloudFormation progress
+        let stackProgressInterval = null;
         async function provisionStack() {
-            const stackName = (document.getElementById('stackNameInput').value || '').trim();
-            if (!stackName) { alert('Enter a stack name'); return; }
+            let stackName = (document.getElementById('stackNameInput').value || '').trim();
+            if (!stackName && (editor ? editor.getValue() : currentTemplate)) {
+                const ts = Date.now().toString().slice(-8);
+                stackName = 'AgenticArchitect-' + ts;
+                document.getElementById('stackNameInput').value = stackName;
+            }
+            if (!stackName) {
+                alert('Enter a stack name or generate a template first');
+                return;
+            }
             const template = editor ? editor.getValue() : currentTemplate;
-            if (!template || !template.trim()) { alert('Generate and validate a template in Design Agent first.'); return; }
+            if (!template || !template.trim()) {
+                alert('Generate and validate a template in Design Agent first.');
+                return;
+            }
             const provisionBtn = document.getElementById('provisionBtn');
             const progressEl = document.getElementById('stackProgress');
             provisionBtn.disabled = true;
             progressEl.textContent = 'Validating template...\n';
-            var outSection = document.getElementById('stackOutputsSection');
-            if (outSection) outSection.style.display = 'none';
+            document.getElementById('stackOutputsSection').style.display = 'none';
             try {
                 const validResult = await callMcpTool('validate_cfn_template', { template_body: template, auto_fix: false });
                 if (!validResult.success || !validResult.valid) {
-                    progressEl.textContent += 'Validation failed: ' + (validResult.error || 'Invalid template') + '\n';
+                    progressEl.textContent += `Validation failed: ${validResult.error || 'Invalid template'}\n`;
                     provisionBtn.disabled = false;
                     return;
                 }
-                var templateParams = validResult.parameters || [];
-                var isPasswordLike = function(p) { return p.no_echo || /password|secret|token|key$/i.test((p.parameter_key || '').replace(/_/g, '')); };
-                var hintEl = document.getElementById('stackParamsHint');
-                if (hintEl) {
-                    var required = templateParams.filter(function(p) { return !p.default_value; });
-                    var pwdLike = required.filter(isPasswordLike);
-                    var other = required.filter(function(p) { return !isPasswordLike(p); });
-                    var parts = [];
-                    if (pwdLike.length) parts.push(pwdLike.map(function(p) { return p.parameter_key; }).join(', ') + ' get an initial value; change after first login.');
-                    if (other.length) parts.push(other.map(function(p) { return p.parameter_key; }).join(', ') + ' get default values (e.g. KeyPairName: "default"); override in Stack parameters if needed.');
-                    hintEl.textContent = parts.join(' ');
-                }
-                var userParams = {};
-                var paramsInput = (document.getElementById('stackParamsInput').value || '').trim();
-                if (paramsInput) {
-                    try { Object.assign(userParams, JSON.parse(paramsInput)); } catch (e) {
-                        progressEl.textContent += 'Invalid parameters JSON: ' + e.message + '\n';
-                        provisionBtn.disabled = false;
-                        return;
+                const templateParams = validResult.parameters || [];
+                const isPasswordLike = (p) => p.no_echo || /password|secret|token|key$/i.test((p.parameter_key || '').replace(/_/g, ''));
+                const capabilities = validResult.capabilities || lastValidationCapabilities || [];
+                const userParams = {};
+                const required = templateParams.filter(p => !p.default_value);
+                for (const p of required) {
+                    const key = p.parameter_key;
+                    if (!key || userParams[key] !== undefined) continue;
+                    if (isPasswordLike(p)) {
+                        userParams[key] = generateInitialPassword();
+                    } else {
+                        const def = getDefaultForParameter(key);
+                        if (def !== undefined) userParams[key] = def;
                     }
                 }
-                var required = templateParams.filter(function(p) { return !p.default_value; });
-                for (var i = 0; i < required.length; i++) {
-                    var key = required[i].parameter_key;
-                    if (!key || userParams[key] !== undefined) continue;
-                    if (isPasswordLike(required[i])) userParams[key] = generateInitialPassword();
-                    else userParams[key] = getDefaultForParameter(key);
-                }
-                var parameters = Object.keys(userParams).map(function(k) { return { ParameterKey: k, ParameterValue: String(userParams[k]) }; });
-                const capabilities = validResult.capabilities || lastValidationCapabilities || [];
-                progressEl.textContent += 'Creating/updating stack "' + stackName + '"...\n';
-                var provPayload = { stack_name: stackName, template_body: template, capabilities: capabilities };
+                const parameters = Object.entries(userParams).map(([k, v]) => ({ ParameterKey: k, ParameterValue: String(v) }));
+                progressEl.textContent += `Creating/updating stack "${stackName}"...\n`;
+                const provPayload = { stack_name: stackName, template_body: template, capabilities: capabilities };
                 if (parameters.length) provPayload.parameters = parameters;
                 const provResult = await callMcpTool('provision_cfn_stack', provPayload);
                 if (!provResult.success) {
-                    progressEl.textContent += 'Error: ' + provResult.error + '\n';
+                    progressEl.textContent += `Error: ${provResult.error}\n`;
                     provisionBtn.disabled = false;
                     return;
                 }
-                progressEl.textContent += 'Stack ' + provResult.action + '. StackId: ' + provResult.stack_id + '\n\nPolling CloudFormation events...\n\n';
+                if (provResult.stack_name) {
+                    stackName = provResult.stack_name;
+                    document.getElementById('stackNameInput').value = stackName;
+                }
+                progressEl.textContent += `Stack ${provResult.action}. StackId: ${provResult.stack_id}\n\nPolling CloudFormation events...\n\n`;
                 if (stackProgressInterval) clearInterval(stackProgressInterval);
-                stackProgressInterval = setInterval(function() { pollStackProgress(stackName, progressEl, provisionBtn); }, 3000);
+                stackProgressInterval = setInterval(() => pollStackProgress(stackName, progressEl, provisionBtn), 3000);
                 pollStackProgress(stackName, progressEl, provisionBtn);
             } catch (err) {
-                progressEl.textContent += 'Error: ' + err.message + '\n';
+                progressEl.textContent += `Error: ${err.message}\n`;
                 provisionBtn.disabled = false;
             }
         }
 
-        function generateInitialPassword() {
-            var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%';
-            var s = '';
-            var arr = new Uint8Array(20);
-            crypto.getRandomValues(arr);
-            for (var i = 0; i < 20; i++) s += chars[arr[i] % chars.length];
-            return s;
-        }
-        function getDefaultForParameter(key) {
-            var k = (key || '').toLowerCase();
-            if (k === 'keypairname') return 'default';
-            if (k === 'databaseusername' || k === 'dbusername') return 'admin';
-            if (k === 'instancetype') return 't3.micro';
-            return 'default';
-        }
-        function escapeHtml(s) {
-            var div = document.createElement('div');
-            div.textContent = s;
-            return div.innerHTML;
-        }
         function renderStackOutputs(outputs) {
-            var section = document.getElementById('stackOutputsSection');
-            var content = document.getElementById('stackOutputsContent');
+            const section = document.getElementById('stackOutputsSection');
+            const content = document.getElementById('stackOutputsContent');
             if (!section || !content) return;
             if (!outputs || outputs.length === 0) {
                 section.style.display = 'none';
                 return;
             }
-            var rows = outputs.map(function(o) {
-                var key = escapeHtml(o.output_key || '');
-                var val = escapeHtml(o.output_value || '');
-                var desc = escapeHtml(o.description || '');
-                var valCell = /^https?:\/\//.test(o.output_value || '') ? '<a href="' + o.output_value + '" target="_blank" rel="noopener" style="color: var(--aws-orange); word-break: break-all;">' + val + '</a>' : '<span style="word-break: break-all;">' + val + '</span>';
-                return '<tr style="border-bottom: 1px solid #e0e0e0;"><td style="padding: 0.5rem; font-weight: 600;">' + key + '</td><td style="padding: 0.5rem;">' + valCell + '</td><td style="padding: 0.5rem; color: #666;">' + desc + '</td></tr>';
-            }).join('');
-            content.innerHTML = '<table style="width:100%; border-collapse: collapse;"><thead><tr style="text-align:left; border-bottom: 2px solid #ccc;"><th style="padding: 0.5rem;">Output</th><th style="padding: 0.5rem;">Value</th><th style="padding: 0.5rem;">Description</th></tr></thead><tbody>' + rows + '</tbody></table>';
+            content.innerHTML = '<table style="width:100%; border-collapse: collapse;"><thead><tr style="text-align:left; border-bottom: 2px solid #ccc;"><th style="padding: 0.5rem;">Output</th><th style="padding: 0.5rem;">Value</th><th style="padding: 0.5rem;">Description</th></tr></thead><tbody>' +
+                outputs.map(o => {
+                    const key = escapeHtml(o.output_key || '');
+                    const val = escapeHtml(o.output_value || '');
+                    const desc = escapeHtml(o.description || '');
+                    const valCell = /^https?:\/\//.test(o.output_value || '') ? `<a href="${o.output_value}" target="_blank" rel="noopener" style="color: var(--aws-orange); word-break: break-all;">${val}</a>` : `<span style="word-break: break-all;">${val}</span>`;
+                    return `<tr style="border-bottom: 1px solid #e0e0e0;"><td style="padding: 0.5rem; font-weight: 600;">${key}</td><td style="padding: 0.5rem;">${valCell}</td><td style="padding: 0.5rem; color: #666;">${desc}</td></tr>`;
+                }).join('') +
+                '</tbody></table>';
             section.style.display = 'block';
         }
+        function generateInitialPassword() {
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%';
+            let s = '';
+            const arr = new Uint8Array(20);
+            crypto.getRandomValues(arr);
+            for (let i = 0; i < 20; i++) s += chars[arr[i] % chars.length];
+            return s;
+        }
+        function getDefaultForParameter(key) {
+            const k = (key || '').toLowerCase();
+            if (k === 'keypairname') return 'default';
+            if (k === 'databaseusername' || k === 'dbusername') return 'admin';
+            if (k === 'instancetype') return 't3.micro';
+            // VPC params: leave undefined so MCP server fills with default VPC / hardcoded vpc-0ca2fc76 (never send literal "default")
+            if (k === 'vpcid' || k === 'publicsubnetids' || k === 'privatesubnetids') return undefined;
+            return 'default';
+        }
+        function escapeHtml(s) {
+            const div = document.createElement('div');
+            div.textContent = s;
+            return div.innerHTML;
+        }
+
         async function pollStackProgress(stackName, progressEl, provisionBtn) {
             try {
                 const result = await callMcpTool('get_cfn_stack_events', { stack_name: stackName, limit: 50 });
                 if (!result.success) return;
-                var status = result.stack_status;
-                var events = result.events || [];
-                var lines = events.map(function(e) { return '[' + e.timestamp + '] ' + e.resource_status + ' ' + e.logical_id + ' (' + e.resource_type + ')' + (e.status_reason ? ' - ' + e.status_reason : ''); });
-                progressEl.textContent = 'Stack status: ' + status + '\n\n' + lines.join('\n');
+                const status = result.stack_status;
+                const events = result.events || [];
+                const lines = events.map(e => `[${e.timestamp}] ${e.resource_status} ${e.logical_id} (${e.resource_type}) ${e.status_reason ? '- ' + e.status_reason : ''}`);
+                progressEl.textContent = `Stack status: ${status}\n\n${lines.join('\n')}`;
                 progressEl.scrollTop = progressEl.scrollHeight;
-                var terminal = ['CREATE_COMPLETE', 'UPDATE_COMPLETE', 'CREATE_FAILED', 'UPDATE_FAILED', 'ROLLBACK_COMPLETE', 'ROLLBACK_FAILED', 'DELETE_COMPLETE'];
-                if (status && terminal.indexOf(status) !== -1) {
+                const terminal = ['CREATE_COMPLETE', 'UPDATE_COMPLETE', 'CREATE_FAILED', 'UPDATE_FAILED', 'ROLLBACK_COMPLETE', 'ROLLBACK_FAILED', 'DELETE_COMPLETE'];
+                if (status && terminal.includes(status)) {
                     if (stackProgressInterval) clearInterval(stackProgressInterval);
                     stackProgressInterval = null;
                     provisionBtn.disabled = false;
                     if (status === 'CREATE_COMPLETE' || status === 'UPDATE_COMPLETE') {
-                        var sendBtn = document.getElementById('sendBtn');
+                        const sendBtn = document.getElementById('sendBtn');
                         if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'Generate'; }
                         renderStackOutputs(result.outputs);
                     } else {
-                        var so = document.getElementById('stackOutputsSection');
-                        if (so) so.style.display = 'none';
+                        document.getElementById('stackOutputsSection').style.display = 'none';
                     }
                 }
-            } catch (e) { console.error('Poll error', e); }
+            } catch (e) {
+                console.error('Poll error', e);
+            }
         }
 
         async function deleteStack() {
-            var stackName = (document.getElementById('stackNameInput').value || '').trim();
-            if (!stackName) { alert('Enter the stack name to delete'); return; }
-            if (!confirm('Delete stack "' + stackName + '"? This cannot be undone.')) return;
-            var progressEl = document.getElementById('stackProgress');
-            progressEl.textContent = 'Deleting stack "' + stackName + '"...\n';
+            const stackName = (document.getElementById('stackNameInput').value || '').trim();
+            if (!stackName) {
+                alert('Enter the stack name to delete');
+                return;
+            }
+            if (!confirm(`Delete stack "${stackName}"? This cannot be undone.`)) return;
+            const progressEl = document.getElementById('stackProgress');
+            progressEl.textContent = `Deleting stack "${stackName}"...\n`;
             try {
-                var result = await callMcpTool('delete_cfn_stack', { stack_name: stackName });
+                const result = await callMcpTool('delete_cfn_stack', { stack_name: stackName });
                 if (result.success) {
                     progressEl.textContent += result.message + '\n\nPolling until deletion completes...\n\n';
                     if (stackProgressInterval) clearInterval(stackProgressInterval);
-                    stackProgressInterval = setInterval(async function() {
+                    stackProgressInterval = setInterval(async () => {
                         try {
-                            var ev = await callMcpTool('get_cfn_stack_events', { stack_name: stackName, limit: 20 });
+                            const ev = await callMcpTool('get_cfn_stack_events', { stack_name: stackName, limit: 20 });
                             if (!ev.success) {
-                                if (ev.error && (ev.error.indexOf('does not exist') !== -1 || ev.error.indexOf('not found') !== -1)) {
+                                if (ev.error && (ev.error.includes('does not exist') || ev.error.includes('not found'))) {
                                     if (stackProgressInterval) clearInterval(stackProgressInterval);
                                     progressEl.textContent += '\nStack deleted.';
                                 }
@@ -1274,19 +1306,19 @@
                                 progressEl.textContent += '\nStack deleted.';
                                 return;
                             }
-                            progressEl.textContent = 'Stack status: ' + ev.stack_status + '\n\n' + (ev.events || []).map(function(e) { return '[' + e.timestamp + '] ' + e.resource_status + ' ' + e.logical_id; }).join('\n');
+                            progressEl.textContent = `Stack status: ${ev.stack_status}\n\n${(ev.events || []).map(e => `[${e.timestamp}] ${e.resource_status} ${e.logical_id}`).join('\n')}`;
                             progressEl.scrollTop = progressEl.scrollHeight;
                         } catch (e) {}
                     }, 3000);
                 } else {
-                    progressEl.textContent += 'Error: ' + result.error + '\n';
+                    progressEl.textContent += `Error: ${result.error}\n`;
                 }
             } catch (err) {
-                progressEl.textContent += 'Error: ' + err.message + '\n';
+                progressEl.textContent += `Error: ${err.message}\n`;
             }
         }
         
-        // Use Example Prompt
+        // Use Example Prompt (Salesforce: quoting agent only)
         function useExample(type) {
             const examples = {
                 'quoting': `Based on Quoting Agent conversation:
@@ -1308,7 +1340,7 @@ A: Yes, we want to have minimal operations and cost overhead. And one more thing
 
 Create the infrastructure for this application.`
             };
-            document.getElementById('promptInput').value = examples[type];
+            if (examples[type]) document.getElementById('promptInput').value = examples[type];
         }
     </script>
 </body>

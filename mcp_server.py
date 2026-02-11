@@ -71,7 +71,7 @@ def _get_default_vpc_and_subnets(region=None):
 
 
 def _normalize_cfn_template_for_provision(template_body: str) -> str:
-    """Strip invalid keys from template so provision succeeds (e.g. ScaleInCooldown/ScaleOutCooldown inside TargetTrackingConfiguration)."""
+    """Strip invalid keys from template so provision succeeds (e.g. ScaleInCooldown/ScaleOutCooldown inside TargetTrackingConfiguration; LoggingLevel/DataTraceEnabled at AWS::ApiGateway::Stage root; Tags inside CloudFront DistributionConfig)."""
     try:
         is_json = template_body.strip().startswith('{')
         if is_json:
@@ -79,19 +79,34 @@ def _normalize_cfn_template_for_provision(template_body: str) -> str:
             resources = doc.get('Resources') or {}
             changed = False
             for rdef in resources.values():
-                if not isinstance(rdef, dict) or rdef.get('Type') != 'AWS::AutoScaling::ScalingPolicy':
+                if not isinstance(rdef, dict):
                     continue
+                rtype = rdef.get('Type')
                 props = rdef.get('Properties') or {}
-                tt = props.get('TargetTrackingConfiguration')
-                if isinstance(tt, dict):
-                    for key in ('ScaleInCooldown', 'ScaleOutCooldown'):
-                        if key in tt:
-                            del tt[key]
+                if rtype == 'AWS::AutoScaling::ScalingPolicy':
+                    tt = props.get('TargetTrackingConfiguration')
+                    if isinstance(tt, dict):
+                        for key in ('ScaleInCooldown', 'ScaleOutCooldown'):
+                            if key in tt:
+                                del tt[key]
+                                changed = True
+                elif rtype == 'AWS::ApiGateway::Stage':
+                    for key in ('LoggingLevel', 'DataTraceEnabled'):
+                        if key in props:
+                            del props[key]
                             changed = True
+                elif rtype == 'AWS::CloudFront::Distribution':
+                    dist_cfg = props.get('DistributionConfig')
+                    if isinstance(dist_cfg, dict) and 'Tags' in dist_cfg:
+                        tags = dist_cfg.pop('Tags')
+                        if tags is not None and 'Tags' not in props:
+                            props['Tags'] = tags
+                        changed = True
             if changed:
                 return json.dumps(doc, indent=2)
             return template_body
-        # YAML: remove lines that set ScaleInCooldown/ScaleOutCooldown (avoid full round-trip to preserve !Ref etc.)
+        # YAML: remove ScaleInCooldown/ScaleOutCooldown lines (avoid full round-trip to preserve !Ref etc.)
+        # ApiGateway Stage LoggingLevel/DataTraceEnabled stripping is done only in JSON path above
         lines = template_body.splitlines()
         out = []
         changed = False
@@ -522,9 +537,10 @@ API GATEWAY:
 (1) For REST API: AWS::ApiGateway::Deployment MUST have DependsOn on ALL Method resources
 (2) For HTTP API: use AWS::ApiGatewayV2::Api with ProtocolType: HTTP
 (3) Always include a Stage resource
-(4) Lambda permission (AWS::Lambda::Permission) required for API Gateway to invoke Lambda — SourceArn must match the API
-(5) Use AWS::ApiGateway::RestApi for REST, AWS::ApiGatewayV2::Api for HTTP/WebSocket
-(6) Include CORS configuration if the API will be called from browsers
+(4) AWS::ApiGateway::Stage: do NOT put LoggingLevel or DataTraceEnabled at the Stage Properties root — they are not permitted. Use MethodSettings (list of MethodSetting) with ResourcePath "*" and HttpMethod "*" if you need logging/tracing.
+(5) Lambda permission (AWS::Lambda::Permission) required for API Gateway to invoke Lambda — SourceArn must match the API
+(6) Use AWS::ApiGateway::RestApi for REST, AWS::ApiGatewayV2::Api for HTTP/WebSocket
+(7) Include CORS configuration if the API will be called from browsers
 
 S3:
 (1) BucketName must be 3–63 characters and globally unique. To avoid "already exists" on redeploy or multiple stacks, use a Parameter BucketNameSuffix (Type: String, Default: "files" or empty). Set BucketName to !Sub 'app-${AWS::AccountId}-${BucketNameSuffix}'. The provisioner auto-injects a short timestamp suffix when not overridden, so names are unique (e.g. app-123456789012-12345678). Omit BucketName only if you do not need a predictable name.
@@ -533,6 +549,9 @@ S3:
 (4) DeletionPolicy: Retain for important data buckets
 (5) Enable versioning for data buckets
 (6) Block public access unless explicitly needed for static hosting
+
+CLOUDFRONT:
+(1) AWS::CloudFront::Distribution has two top-level Properties: DistributionConfig (required) and Tags (optional). Do NOT put Tags inside DistributionConfig — "extraneous key [Tags] is not permitted" there; put Tags as a sibling of DistributionConfig.
 
 DYNAMODB:
 (1) BillingMode: PAY_PER_REQUEST for dev (no capacity planning needed), PROVISIONED for production
@@ -605,6 +624,8 @@ NEVER DO:
 - Forget to add Lambda Permission for API Gateway integration
 - Forget DependsOn for API Gateway Deployment on Method resources
 - Put ScaleInCooldown or ScaleOutCooldown inside TargetTrackingConfiguration of AWS::AutoScaling::ScalingPolicy — not permitted; use Cooldown or EstimatedInstanceWarmup at policy level only
+- Put LoggingLevel or DataTraceEnabled at AWS::ApiGateway::Stage Properties root — not permitted; use MethodSettings with a MethodSetting entry (ResourcePath "*", HttpMethod "*") for logging/tracing
+- Put Tags inside DistributionConfig of AWS::CloudFront::Distribution — not permitted; Tags must be a top-level property of the resource (sibling to DistributionConfig)
 - Use ASG CreationPolicy that requires resource signals (MinSuccessfulInstancesPercent, WaitOnResourceSignals) without UserData that runs cfn-signal — causes "Received 0 SUCCESS signal(s)" and CREATE_FAILED; omit CreationPolicy on ASG instead
 - For AWS::EC2::LaunchTemplate do NOT use TagSpecifications at resource level with ResourceType "instance" — causes "'instance' is not a valid taggable resource type"; use ResourceType "launch-template" for tags on the launch template; put instance/volume tags inside LaunchTemplateData.TagSpecifications
 - Use No export named ImportValue references — keep everything in one template

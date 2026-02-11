@@ -23,15 +23,17 @@ Deploy the AWS Architect AI application as a Visualforce page in your Salesforce
 ### 2. Via Salesforce CLI
 
 ```bash
-# Install Salesforce CLI
-npm install -g @salesforce/cli
+# From repo root (cfn-mcp-server)
+cd salesforce_ui
 
-# Authenticate
-sf org login web --alias myorg
+# Authenticate to storm org (one-time)
+sf org login web --alias storm --instance-url https://storm-1337260a3c1ead.my.salesforce.com
 
-# Deploy
-sf project deploy start --source-dir salesforce_ui/
+# Deploy to storm org
+sf project deploy start --source-dir . --target-org storm
 ```
+
+**Storm org:** `https://storm-1337260a3c1ead.my.salesforce.com`
 
 ### 3. Via VS Code (Salesforce Extension)
 
@@ -44,7 +46,7 @@ sf project deploy start --source-dir salesforce_ui/
 
 After deployment, access at:
 ```
-https://orgfarm-734a8e4b92-dev-ed.develop.my.salesforce.com/apex/AWSArchitectAI
+https://storm-1337260a3c1ead.my.salesforce.com/apex/AWSArchitectAI
 ```
 
 Or add to Salesforce navigation:

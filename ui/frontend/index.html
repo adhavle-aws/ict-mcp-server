@@ -563,13 +563,8 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                 </div>
                 <div style="padding: 1.5rem 2rem; flex: 1; display: flex; flex-direction: column; overflow: hidden;">
                     <div class="input-section" style="flex-shrink: 0;">
-                        <label for="stackNameInput">Stack name <span style="font-weight: normal; color: #666;">(auto-generated from template, editable)</span></label>
-                        <input type="text" id="stackNameInput" placeholder="Generated when you have a template" style="width: 100%; padding: 0.5rem; border: 1px solid var(--aws-border); border-radius: 4px; font-size: 1rem;" />
-                    </div>
-                    <div class="input-section" style="flex-shrink: 0;">
-                        <label for="stackParamsInput">Stack parameters <span style="font-weight: normal; color: #666;">(optional; password-type params get an initial value to change later)</span></label>
-                        <textarea id="stackParamsInput" placeholder='Optional overrides, e.g. {"DBUsername": "admin"}' rows="2" style="width: 100%; padding: 0.5rem; border: 1px solid var(--aws-border); border-radius: 4px; font-size: 0.9rem; font-family: monospace;"></textarea>
-                        <div id="stackParamsHint" style="font-size: 0.8rem; color: #666; margin-top: 0.25rem;"></div>
+                        <label for="stackNameInput">Stack name <span style="font-weight: normal; color: #666;">(default: AgenticArchitect-{timestamp}, editable)</span></label>
+                        <input type="text" id="stackNameInput" placeholder="AgenticArchitect-12345678" style="width: 100%; padding: 0.5rem; border: 1px solid var(--aws-border); border-radius: 4px; font-size: 1rem;" />
                     </div>
                     <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0;">
                         <button class="aws-button aws-button-primary" onclick="provisionStack()" id="provisionBtn">Provision</button>
@@ -577,7 +572,7 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                     </div>
                     <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 200px;">
                         <label style="flex-shrink: 0;">CloudFormation progress</label>
-                        <pre id="stackProgress" style="flex: 1; overflow: auto; background: #232f3e; color: #eaeded; padding: 1rem; border-radius: 4px; font-size: 0.85rem; margin: 0; white-space: pre-wrap; word-break: break-all;">No deployment in progress. Stack name is auto-generated. Click Provision to deploy.</pre>
+                        <pre id="stackProgress" style="flex: 1; overflow: auto; background: #232f3e; color: #eaeded; padding: 1rem; border-radius: 4px; font-size: 0.85rem; margin: 0; white-space: pre-wrap; word-break: break-all;">No deployment in progress. Default stack name: AgenticArchitect-{timestamp}. Click Provision to deploy.</pre>
                         <div id="stackOutputsSection" style="display: none; flex-shrink: 0; margin-top: 1rem; padding: 1rem; background: #f4f5f7; border-radius: 6px; border: 1px solid #dfe1e5;">
                             <h3 style="margin: 0 0 0.75rem 0; font-size: 1rem;">Stack outputs</h3>
                             <div id="stackOutputsContent"></div>
@@ -830,37 +825,17 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
             if (pageName === 'deployment') refreshGeneratedStackName();
         }
 
-        // Generate stack name from template (agentic: minimal human input)
-        function generateStackNameFromTemplate(template) {
-            if (!template || !template.trim()) return '';
-            const maxBaseLen = 80;
-            const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, maxBaseLen);
-            let base = 'stack';
-            try {
-                const t = template.trim();
-                const isJson = t.startsWith('{');
-                if (isJson) {
-                    const data = JSON.parse(template);
-                    if (data.Description) base = slug(String(data.Description));
-                } else {
-                    const descMatch = template.match(/^\s*Description\s*:\s*["']?([^"'\n|]+|.*?)["']?\s*$/m)
-                        || template.match(/^\s*Description\s*:\s*(.+?)(?=\n\w|\n\s*\n|$)/ms);
-                    if (descMatch) base = slug(descMatch[1].trim().replace(/\s+/g, ' '));
-                }
-            } catch (e) {}
-            if (!base || !/^[a-zA-Z]/.test(base)) base = 'stack-' + base;
-            const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-            const rnd = Math.random().toString(36).slice(2, 6);
-            return (base + '-' + date + '-' + rnd).replace(/-+/g, '-').slice(0, 128);
-        }
-
+        // Default stack name: AgenticArchitect-{timestamp} (8 digits)
         function refreshGeneratedStackName() {
-            const template = editor ? editor.getValue() : currentTemplate;
             const input = document.getElementById('stackNameInput');
             if (!input) return;
-            const name = generateStackNameFromTemplate(template);
-            if (name) input.value = name;
-            else input.placeholder = 'Generate a template in Design Agent first';
+            const template = editor ? editor.getValue() : currentTemplate;
+            if (template && template.trim()) {
+                const ts = Date.now().toString().slice(-8);
+                if (!input.value || input.value === input.placeholder) input.value = 'AgenticArchitect-' + ts;
+            } else {
+                input.placeholder = 'AgenticArchitect-12345678';
+            }
         }
         
         // Tab Navigation
@@ -1133,9 +1108,14 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
         // Deployment Agent: Provision stack and show CloudFormation progress
         let stackProgressInterval = null;
         async function provisionStack() {
-            const stackName = (document.getElementById('stackNameInput').value || '').trim();
+            let stackName = (document.getElementById('stackNameInput').value || '').trim();
+            if (!stackName && (editor ? editor.getValue() : currentTemplate)) {
+                const ts = Date.now().toString().slice(-8);
+                stackName = 'AgenticArchitect-' + ts;
+                document.getElementById('stackNameInput').value = stackName;
+            }
             if (!stackName) {
-                alert('Enter a stack name');
+                alert('Enter a stack name or generate a template first');
                 return;
             }
             const template = editor ? editor.getValue() : currentTemplate;
@@ -1156,29 +1136,9 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                     return;
                 }
                 const templateParams = validResult.parameters || [];
-                const hintEl = document.getElementById('stackParamsHint');
                 const isPasswordLike = (p) => p.no_echo || /password|secret|token|key$/i.test((p.parameter_key || '').replace(/_/g, ''));
-                if (hintEl) {
-                    const required = templateParams.filter(p => !p.default_value);
-                    const pwdLike = required.filter(isPasswordLike);
-                    const other = required.filter(p => !isPasswordLike(p));
-                    const parts = [];
-                    if (pwdLike.length) parts.push(pwdLike.map(p => p.parameter_key).join(', ') + ' get an initial value; change after first login.');
-                    if (other.length) parts.push(other.map(p => p.parameter_key).join(', ') + ' get default values (e.g. KeyPairName: "default"); override in Stack parameters if needed.');
-                    hintEl.textContent = parts.join(' ');
-                }
                 const capabilities = validResult.capabilities || lastValidationCapabilities || [];
                 const userParams = {};
-                const paramsInput = (document.getElementById('stackParamsInput').value || '').trim();
-                if (paramsInput) {
-                    try {
-                        Object.assign(userParams, JSON.parse(paramsInput));
-                    } catch (e) {
-                        progressEl.textContent += `Invalid parameters JSON: ${e.message}\n`;
-                        provisionBtn.disabled = false;
-                        return;
-                    }
-                }
                 const required = templateParams.filter(p => !p.default_value);
                 for (const p of required) {
                     const key = p.parameter_key;
@@ -1199,6 +1159,10 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                     progressEl.textContent += `Error: ${provResult.error}\n`;
                     provisionBtn.disabled = false;
                     return;
+                }
+                if (provResult.stack_name) {
+                    stackName = provResult.stack_name;
+                    document.getElementById('stackNameInput').value = stackName;
                 }
                 progressEl.textContent += `Stack ${provResult.action}. StackId: ${provResult.stack_id}\n\nPolling CloudFormation events...\n\n`;
                 if (stackProgressInterval) clearInterval(stackProgressInterval);

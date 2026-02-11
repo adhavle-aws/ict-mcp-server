@@ -70,6 +70,51 @@ def _get_default_vpc_and_subnets(region=None):
         return None, []
 
 
+def _normalize_cfn_template_for_provision(template_body: str) -> str:
+    """Strip invalid keys from template so provision succeeds (e.g. ScaleInCooldown/ScaleOutCooldown inside TargetTrackingConfiguration)."""
+    try:
+        is_json = template_body.strip().startswith('{')
+        if is_json:
+            doc = json.loads(template_body)
+            resources = doc.get('Resources') or {}
+            changed = False
+            for rdef in resources.values():
+                if not isinstance(rdef, dict) or rdef.get('Type') != 'AWS::AutoScaling::ScalingPolicy':
+                    continue
+                props = rdef.get('Properties') or {}
+                tt = props.get('TargetTrackingConfiguration')
+                if isinstance(tt, dict):
+                    for key in ('ScaleInCooldown', 'ScaleOutCooldown'):
+                        if key in tt:
+                            del tt[key]
+                            changed = True
+            if changed:
+                return json.dumps(doc, indent=2)
+            return template_body
+        # YAML: remove lines that set ScaleInCooldown/ScaleOutCooldown (avoid full round-trip to preserve !Ref etc.)
+        lines = template_body.splitlines()
+        out = []
+        changed = False
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            stripped = line.strip()
+            if stripped.startswith('ScaleInCooldown:') or stripped.startswith('ScaleOutCooldown:'):
+                changed = True
+                i += 1
+                if i < len(lines):
+                    next_indent = len(lines[i]) - len(lines[i].lstrip()) if lines[i] else 0
+                    curr_indent = len(line) - len(line.lstrip()) if line else 0
+                    if next_indent > curr_indent and lines[i].strip():
+                        i += 1
+                continue
+            out.append(line)
+            i += 1
+        return '\n'.join(out) if changed else template_body
+    except Exception:
+        return template_body
+
+
 def get_bedrock_client():
     """Get Bedrock Runtime client with region from environment"""
     region = os.environ.get('AWS_REGION', 'us-east-1')
@@ -366,6 +411,10 @@ PARAMETER TEMPLATE (use this pattern for all templates):
       Type: String
       Default: appdb
       Description: Suffix for RDS identifier (appDB-{suffix}). Provisioner auto-fills a short unique value (e.g. last 8 digits of timestamp) when not overridden — keeps names unique and under 63 chars.
+    BucketNameSuffix:
+      Type: String
+      Default: files
+      Description: Suffix for S3 bucket name (app-{AccountId}-{suffix}). Provisioner auto-fills a short timestamp when not overridden to avoid "already exists".
     DBInstanceClass:
       Type: String
       Default: db.t3.micro
@@ -440,8 +489,9 @@ EC2 / AUTO SCALING:
 (7) ALB Target Group health check: use proper path (default /), healthy threshold, interval
 (8) For ASG with ALB, use TargetGroupARNs (not LoadBalancerNames)
 (9) Do NOT use CreationPolicy on ASG that requires SUCCESS signals (e.g. MinSuccessfulInstancesPercent, WaitOnResourceSignals) unless UserData explicitly runs cfn-signal when the instance is ready. Otherwise you get "Received 0 SUCCESS signal(s) out of 2. Unable to satisfy 100% MinSuccessfulInstancesPercent" and CREATE_FAILED. Prefer omitting CreationPolicy/UpdatePolicy on ASG so the stack completes when the ASG is created; instances can still launch and register with the ALB.
-(10) UserData must be Base64 encoded using Fn::Base64
-(11) AWS::EC2::LaunchTemplate: TagSpecifications at the resource level (same level as LaunchTemplateData) apply to the launch template itself — use ResourceType: "launch-template" ONLY there. Do NOT use ResourceType: "instance" at the LaunchTemplate resource level or you get "'instance' is not a valid taggable resource type". To tag instances/volumes when instances are launched, put TagSpecifications inside LaunchTemplateData with ResourceType: "instance" or "volume".
+(10) For AWS::AutoScaling::ScalingPolicy with PolicyType TargetTrackingScaling: TargetTrackingConfiguration may only contain TargetValue, DisableScaleIn, PredefinedMetricSpecification, CustomizedMetricSpecification. Do NOT put ScaleInCooldown or ScaleOutCooldown inside TargetTrackingConfiguration — they are not permitted. Use Cooldown or EstimatedInstanceWarmup at the policy resource level if needed.
+(11) UserData must be Base64 encoded using Fn::Base64
+(12) AWS::EC2::LaunchTemplate: TagSpecifications at the resource level (same level as LaunchTemplateData) apply to the launch template itself — use ResourceType: "launch-template" ONLY there. Do NOT use ResourceType: "instance" at the LaunchTemplate resource level or you get "'instance' is not a valid taggable resource type". To tag instances/volumes when instances are launched, put TagSpecifications inside LaunchTemplateData with ResourceType: "instance" or "volume".
 
 RDS:
 (1) Engine: postgres, EngineVersion: '16' ONLY (use major version "16" so RDS selects the default available minor; do not pin to "16.3" — it can be deprecated or unavailable and causes "Cannot find version 16.3"). No MySQL, no Aurora, no other versions.
@@ -449,11 +499,11 @@ RDS:
 (3) MasterUsername: 'dbadmin' (NEVER 'admin' — it is reserved for some engines)
 (4) PREFER Secrets Manager pattern or ManageMasterUserPassword: true — if using password parameter it MUST have a default
 (5) AllocatedStorage: parameterized, default 20, minimum 20 for gp3
-(6) DBSubnetGroup: REQUIRED for VPC deployment, needs subnets in at least 2 AZs
+(6) DBSubnetGroup: REQUIRED for VPC deployment, needs subnets in at least 2 AZs. For AWS::RDS::DBInstance use VPCSecurityGroups (exact property name — not VpcSecurityGroupIds); list of !Ref to security group resources.
 (7) MultiAZ: true for production, false for dev (use Condition based on Environment parameter)
 (8) DeletionPolicy: Snapshot (so data is preserved on stack deletion)
 (9) BackupRetentionPeriod: at least 7
-(10) StorageType: gp3 (not gp2)
+(10) StorageType: gp3 (not gp2). When AllocatedStorage is less than 400 GB, do NOT set Iops or StorageThroughput on the DB instance — AWS returns "You can't specify IOPS or storage throughput for engine postgres and a storage size less than 400." Omit Iops and StorageThroughput for typical dev sizes (e.g. 20–100 GB).
 (11) DBInstanceClass: parameterized, default db.t3.micro
 (12) PubliclyAccessible: false (always in private subnet)
 (13) StorageEncrypted: true
@@ -465,7 +515,8 @@ LAMBDA:
 (4) Handler format: for Python use index.handler (with ZipFile), for Node.js use index.handler
 (5) Timeout: parameterized, default 30 (default 3s is usually too short)
 (6) MemorySize: parameterized, default 256
-(7) For Lambda in VPC: needs security group, private subnets, and NAT Gateway for internet access
+(7) FunctionName: max 64 characters. NEVER use !Sub with AWS::StackName in FunctionName — stack names are often long and cause "Member must have length less than or equal to 64". Use a short literal (e.g. "processor-fn", "BackgroundProcessor", "api-handler") or omit FunctionName so CloudFormation assigns a unique name.
+(8) For Lambda in VPC: needs security group, private subnets, and NAT Gateway for internet access
 
 API GATEWAY:
 (1) For REST API: AWS::ApiGateway::Deployment MUST have DependsOn on ALL Method resources
@@ -476,8 +527,8 @@ API GATEWAY:
 (6) Include CORS configuration if the API will be called from browsers
 
 S3:
-(1) BucketName must be 3–63 characters. PREFER omitting BucketName so CloudFormation auto-generates a valid name.
-(2) If BucketName is specified: use a SHORT prefix + AccountId, e.g. !Sub 'app-${AWS::AccountId}' or 'data-${AWS::AccountId}'. NEVER use AWS::StackName in BucketName — stack names can exceed 63 chars and will cause InternalFailure.
+(1) BucketName must be 3–63 characters and globally unique. To avoid "already exists" on redeploy or multiple stacks, use a Parameter BucketNameSuffix (Type: String, Default: "files" or empty). Set BucketName to !Sub 'app-${AWS::AccountId}-${BucketNameSuffix}'. The provisioner auto-injects a short timestamp suffix when not overridden, so names are unique (e.g. app-123456789012-12345678). Omit BucketName only if you do not need a predictable name.
+(2) If you specify BucketName without a suffix param: use !Sub 'app-${AWS::AccountId}-${BucketNameSuffix}' and add Parameter BucketNameSuffix. NEVER use only 'app-${AWS::AccountId}' or 'app-files-${AWS::AccountId}' — that name can already exist. NEVER use AWS::StackName in BucketName — exceeds 63 chars.
 (3) For static website hosting, include WebsiteConfiguration
 (4) DeletionPolicy: Retain for important data buckets
 (5) Enable versioning for data buckets
@@ -536,25 +587,184 @@ NEVER DO:
 - Use deprecated types (LaunchConfiguration, python3.8, nodejs16.x, etc.)
 - Create ALB with subnets in only one AZ
 - Create RDS without DBSubnetGroup in a VPC
+- Use VpcSecurityGroupIds on AWS::RDS::DBInstance — use VPCSecurityGroups (exact CloudFormation property name)
 - Set RDS DBInstanceIdentifier to a bare literal only — use !Sub 'appDB-${DBInstanceIdentifierSuffix}' (default "appdb"; provisioner auto-injects unique short suffix). Do not use AWS::StackName (exceeds 63 chars).
-- Set S3 BucketName using AWS::StackName — BucketName must be 3–63 chars; use short prefix + AWS::AccountId or omit BucketName
+- Set S3 BucketName using AWS::StackName — BucketName must be 3–63 chars. Use !Sub 'app-${AWS::AccountId}-${BucketNameSuffix}' with BucketNameSuffix param (provisioner injects timestamp); or omit BucketName
 - Set ALB Name (AWS::ElasticLoadBalancingV2::LoadBalancer) or Target Group Name (AWS::ElasticLoadBalancingV2::TargetGroup) using AWS::StackName or any value longer than 32 chars — omit Name or use short literal ("app-alb", "app-tg"). Keep all ELBv2 names under 32 characters.
 - Create NAT Gateway without DependsOn VPCGatewayAttachment
 - Use 'admin' as RDS MasterUsername
 - Use empty SecurityGroupIngress or SecurityGroupEgress arrays
 - Leave Lambda without an execution role
+- Use AWS::StackName in Lambda FunctionName — max 64 chars; use short literal or omit FunctionName
 - Reference S3 objects for Lambda code — use inline ZipFile
 - Create a security group rule referencing a group not in this template
 - Use gp2 storage for RDS — use gp3
+- Set Iops or StorageThroughput on RDS when AllocatedStorage < 400 GB — not allowed for postgres; omit both for storage under 400 GB
 - Set RDS PostgreSQL EngineVersion to "16.3" or any specific minor — use "16" (major only) so RDS picks the default available minor; 16.3 may not exist and causes "Cannot find version 16.3"
 - Create resources with PubliclyAccessible: true unless explicitly requested
 - Forget to add Lambda Permission for API Gateway integration
 - Forget DependsOn for API Gateway Deployment on Method resources
+- Put ScaleInCooldown or ScaleOutCooldown inside TargetTrackingConfiguration of AWS::AutoScaling::ScalingPolicy — not permitted; use Cooldown or EstimatedInstanceWarmup at policy level only
 - Use ASG CreationPolicy that requires resource signals (MinSuccessfulInstancesPercent, WaitOnResourceSignals) without UserData that runs cfn-signal — causes "Received 0 SUCCESS signal(s)" and CREATE_FAILED; omit CreationPolicy on ASG instead
 - For AWS::EC2::LaunchTemplate do NOT use TagSpecifications at resource level with ResourceType "instance" — causes "'instance' is not a valid taggable resource type"; use ResourceType "launch-template" for tags on the launch template; put instance/volume tags inside LaunchTemplateData.TagSpecifications
 - Use No export named ImportValue references — keep everything in one template
 - No Cognito user pool — do not use AWS::Cognito::UserPool, UserPoolClient, or any Cognito resources
-- Create VPC/Subnet/IGW/NAT/Route resources — always use Parameters VpcId, PublicSubnetIds, PrivateSubnetIds (deployer passes existing/default VPC)"""
+- Create VPC/Subnet/IGW/NAT/Route resources — always use Parameters VpcId, PublicSubnetIds, PrivateSubnetIds (deployer passes existing/default VPC)
+
+ONE-SHOT EXAMPLE (follow this pattern — existing VPC params, no VPC/Subnet/IGW in Resources, single RDS postgres with DBInstanceIdentifierSuffix):
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Three-tier app with ALB, ASG, RDS — uses existing VPC
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+  InstanceType:
+    Type: String
+    Default: t3.micro
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Existing VPC ID
+  PublicSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: At least 2 subnet IDs for ALB
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: At least 2 subnet IDs for ASG and RDS
+  DBInstanceIdentifierSuffix:
+    Type: String
+    Default: appdb
+    Description: Suffix for RDS identifier (provisioner auto-fills unique value)
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+Resources:
+  DBSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${AWS::StackName}-db-secret'
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "dbadmin"}'
+        GenerateStringKey: password
+        PasswordLength: 24
+        ExcludeCharacters: '"@/\\'
+      Tags:
+        - Key: stack-creator
+          Value: aws-architect-mcp
+        - Key: project
+          Value: mwc-demo
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ALB SG
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: app-alb-sg
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: App SG
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: app-sg
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: DB SG
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref AppSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: app-db-sg
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnets for RDS
+      SubnetIds: !Ref PrivateSubnetIds
+      Tags:
+        - Key: Name
+          Value: app-db-subnets
+  AppDB:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: !Sub 'appDB-${DBInstanceIdentifierSuffix}'
+      Engine: postgres
+      EngineVersion: '16'
+      MasterUsername: dbadmin
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DBSecret}:SecretString:password}}'
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DatabaseSecurityGroup
+      AllocatedStorage: 20
+      DBInstanceClass: !Ref DBInstanceClass
+      StorageType: gp3
+      StorageEncrypted: true
+      BackupRetentionPeriod: 7
+      PubliclyAccessible: false
+      Tags:
+        - Key: stack-creator
+          Value: aws-architect-mcp
+        - Key: project
+          Value: mwc-demo
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: application
+      Scheme: internet-facing
+      Subnets: !Ref PublicSubnetIds
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: app-alb
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: 8080
+      Protocol: HTTP
+      VpcId: !Ref VpcId
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      Tags:
+        - Key: Name
+          Value: app-tg
+Outputs:
+  LoadBalancerDNS:
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+  DBEndpoint:
+    Value: !GetAtt AppDB.Endpoint.Address
+---
+"""
         # Inject official schema hints for key resource types so the model uses exact property names (reduces deploy failures)
         try:
             schema_parts = [_schema_summary_for_builder(rt) for rt in _KEY_SCHEMA_TYPES_FOR_BUILDER]
@@ -764,6 +974,11 @@ def provision_cfn_stack(
             "success": False,
             "error": "Server is in read-only mode. Provisioning is disabled. Set MCP_READONLY=false to allow stack create/update.",
         }
+    # Use a short stack name when the provided one is too long (avoids Lambda/other resource names exceeding 64 chars when template uses !Sub '${AWS::StackName}-...')
+    _stack_name = (stack_name or '').strip()
+    if len(_stack_name) > 50:
+        _stack_name = "AgenticArchitect-" + str(int(time.time()))[-8:]
+    stack_name = _stack_name
     # Reject templates that create VPC/Subnet/IGW/NAT (account limits; we use existing VPC only)
     _FORBIDDEN_RESOURCE_TYPES = {
         'AWS::EC2::VPC', 'AWS::EC2::Subnet', 'AWS::EC2::InternetGateway',
@@ -785,6 +1000,8 @@ def provision_cfn_stack(
             }
     except Exception:
         pass  # parse failed; let CloudFormation validate later
+    # Strip invalid keys that cause "extraneous key not permitted" (e.g. ScaleInCooldown/ScaleOutCooldown inside TargetTrackingConfiguration)
+    template_body = _normalize_cfn_template_for_provision(template_body)
     cfn = get_cfn_client()
     try:
         # Check if stack exists
@@ -875,17 +1092,28 @@ def provision_cfn_stack(
                         'success': False,
                         'error': f'Could not resolve default VPC/subnets for {key}. Ensure vpc-0ca2fc76 exists in this region and has subnets, or pass explicit parameter values.',
                     }
-        # Auto-inject short unique RDS suffix on create when default "appdb" is used (avoids "identifier already exists")
+        # Auto-inject short unique suffixes on create (timestamp last 8 digits) to avoid "already exists"
+        unique_suffix = str(int(time.time()))[-8:]
         if not stack_exists:
             def _is_db_suffix_key(k):
                 return (k or '').strip().lower() == 'dbinstanceidentifiersuffix'
             _db_suffix_key = next((k for k in template_param_keys if _is_db_suffix_key(k)), None)
-            if _db_suffix_key is not None:
-                current = (user_params.get(_db_suffix_key) or '').strip().lower()
+            template_has_db_suffix = _db_suffix_key is not None or 'DBInstanceIdentifierSuffix' in template_body or 'dbinstanceidentifiersuffix' in template_body.lower()
+            if template_has_db_suffix:
+                current = (user_params.get(_db_suffix_key or 'DBInstanceIdentifierSuffix') or '').strip().lower()
                 if not current or current == 'appdb':
-                    # Short unique suffix: last 8 digits of epoch (appDB-12345678 fits 63-char limit)
-                    unique_suffix = str(int(time.time()))[-8:]
-                    user_params[_db_suffix_key] = unique_suffix
+                    key_to_set = _db_suffix_key or 'DBInstanceIdentifierSuffix'
+                    user_params[key_to_set] = unique_suffix
+            # S3: inject BucketNameSuffix so bucket name is unique (avoids "app-files-{AccountId} already exists")
+            def _is_bucket_suffix_key(k):
+                return (k or '').strip().lower() == 'bucketnamesuffix'
+            _bucket_suffix_key = next((k for k in template_param_keys if _is_bucket_suffix_key(k)), None)
+            template_has_bucket_suffix = _bucket_suffix_key is not None or 'BucketNameSuffix' in template_body or 'bucketnamesuffix' in template_body.lower()
+            if template_has_bucket_suffix:
+                current = (user_params.get(_bucket_suffix_key or 'BucketNameSuffix') or '').strip().lower()
+                if not current or current in ('files', 'data', 'bucket'):
+                    key_to_set = _bucket_suffix_key or 'BucketNameSuffix'
+                    user_params[key_to_set] = unique_suffix
         # Final safeguard: never send literal "default" for VPC params to CloudFormation
         if user_params:
             params['Parameters'] = []
@@ -901,11 +1129,14 @@ def provision_cfn_stack(
             response = cfn.create_stack(**params)
             action = 'created'
 
-        return {
+        result = {
             'success': True,
             'action': action,
             'stack_id': response['StackId'],
         }
+        if stack_name:
+            result['stack_name'] = stack_name
+        return result
     except Exception as e:
         return {
             'success': False,

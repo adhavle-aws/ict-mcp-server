@@ -1107,13 +1107,14 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
         }
 
         // Open current template in AWS Infrastructure Composer (download + open console; Composer only supports file import)
-        const COMPOSER_CONSOLE_URL = 'https://console.aws.amazon.com/composer/home?region=us-east-1';
+        const COMPOSER_CONSOLE_URL = 'https://us-east-1.console.aws.amazon.com/composer/canvas?region=us-east-1';
         function openInInfrastructureComposer() {
             const template = (editor ? editor.getValue() : currentTemplate) || '';
             if (!template.trim()) {
                 alert('Generate a template in Design Agent first.');
                 return;
             }
+            navigator.clipboard.writeText(template).catch(() => {});
             const isJson = template.trim().startsWith('{');
             const ext = isJson ? 'json' : 'yaml';
             const filename = 'template.' + ext;
@@ -1127,7 +1128,7 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
             const progressEl = document.getElementById('stackProgress');
             if (progressEl) {
                 const prev = progressEl.textContent;
-                progressEl.textContent = prev + '\n\nTemplate saved as ' + filename + '. In Composer: Menu → Open → Template file, then select the downloaded file.';
+                progressEl.textContent = prev + '\n\nTemplate copied to clipboard and saved as ' + filename + '. In Composer: Menu → Open → Template file (or paste where supported).';
             }
         }
 

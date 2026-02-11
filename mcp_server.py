@@ -97,11 +97,45 @@ def _normalize_cfn_template_for_provision(template_body: str) -> str:
                             changed = True
                 elif rtype == 'AWS::CloudFront::Distribution':
                     dist_cfg = props.get('DistributionConfig')
-                    if isinstance(dist_cfg, dict) and 'Tags' in dist_cfg:
-                        tags = dist_cfg.pop('Tags')
-                        if tags is not None and 'Tags' not in props:
-                            props['Tags'] = tags
-                        changed = True
+                    if isinstance(dist_cfg, dict):
+                        if 'Tags' in dist_cfg:
+                            tags = dist_cfg.pop('Tags')
+                            if tags is not None and 'Tags' not in props:
+                                props['Tags'] = tags
+                            changed = True
+                        if 'ViewerProtocolPolicy' in dist_cfg:
+                            del dist_cfg['ViewerProtocolPolicy']
+                            changed = True
+                        default_beh = dist_cfg.get('DefaultCacheBehavior')
+                        if isinstance(default_beh, dict):
+                            if 'OriginId' in default_beh and 'TargetOriginId' not in default_beh:
+                                default_beh['TargetOriginId'] = default_beh.pop('OriginId')
+                                changed = True
+                            elif 'OriginId' in default_beh:
+                                del default_beh['OriginId']
+                                changed = True
+                        for cb in dist_cfg.get('CacheBehaviors') or []:
+                            if isinstance(cb, dict) and 'OriginId' in cb and 'TargetOriginId' not in cb:
+                                cb['TargetOriginId'] = cb.pop('OriginId')
+                                changed = True
+                            elif isinstance(cb, dict) and 'OriginId' in cb:
+                                del cb['OriginId']
+                                changed = True
+                elif rtype == 'AWS::ApiGateway::Resource':
+                    path_part = props.get('PathPart')
+                    if isinstance(path_part, str):
+                        part = path_part.strip()
+                        if part.startswith('{') and part.endswith('}'):
+                            inner = part[1:-1].strip().replace(' ', '').replace('-', '_')
+                            if inner and inner != part[1:-1]:
+                                props['PathPart'] = '{' + inner + '}'
+                                changed = True
+                        else:
+                            allowed = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-:')
+                            fixed = ''.join(c if c in allowed else '_' for c in part)
+                            if fixed != part:
+                                props['PathPart'] = fixed
+                                changed = True
             if changed:
                 return json.dumps(doc, indent=2)
             return template_body
@@ -126,6 +160,67 @@ def _normalize_cfn_template_for_provision(template_body: str) -> str:
             out.append(line)
             i += 1
         return '\n'.join(out) if changed else template_body
+    except Exception:
+        return template_body
+
+
+def _strip_cloudfront_from_template(template_body: str) -> str:
+    """Remove all AWS::CloudFront::* resources from template and fix Outputs/DependsOn that reference them. Provision ignores CloudFront even if architecture has it."""
+    try:
+        is_json = template_body.strip().startswith('{')
+        if is_json:
+            doc = json.loads(template_body)
+        else:
+            doc = yaml.safe_load(template_body)
+        if not doc or not isinstance(doc, dict):
+            return template_body
+        resources = doc.get('Resources') or {}
+        removed_ids = {
+            rid for rid, rdef in resources.items()
+            if isinstance(rdef, dict) and (rdef.get('Type') or '').startswith('AWS::CloudFront::')
+        }
+        if not removed_ids:
+            return template_body
+        for rid in removed_ids:
+            resources.pop(rid, None)
+        # Remove outputs that reference removed resources
+        outputs = doc.get('Outputs') or {}
+        to_remove = []
+        for out_name, out_def in outputs.items():
+            if not isinstance(out_def, dict):
+                continue
+            val = out_def.get('Value')
+            if isinstance(val, dict):
+                if val.get('Ref') in removed_ids:
+                    to_remove.append(out_name)
+                elif 'Fn::GetAtt' in val:
+                    att = val['Fn::GetAtt']
+                    if isinstance(att, list) and att and att[0] in removed_ids:
+                        to_remove.append(out_name)
+                    elif isinstance(att, str) and att.split('.')[0] in removed_ids:
+                        to_remove.append(out_name)
+            elif isinstance(val, list) and len(val) == 2 and val[0] == 'Ref' and val[1] in removed_ids:
+                to_remove.append(out_name)
+        for k in to_remove:
+            outputs.pop(k, None)
+        # Remove DependsOn entries that reference removed resources
+        for rdef in resources.values():
+            if not isinstance(rdef, dict):
+                continue
+            dep = rdef.get('DependsOn')
+            if dep is None:
+                continue
+            if isinstance(dep, list):
+                new_dep = [d for d in dep if d not in removed_ids]
+                if len(new_dep) != len(dep):
+                    rdef['DependsOn'] = new_dep if new_dep else None
+                    if rdef['DependsOn'] is None:
+                        del rdef['DependsOn']
+            elif dep in removed_ids:
+                del rdef['DependsOn']
+        if is_json:
+            return json.dumps(doc, indent=2)
+        return yaml.dump(doc, default_flow_style=False, allow_unicode=True, sort_keys=False)
     except Exception:
         return template_body
 
@@ -538,9 +633,10 @@ API GATEWAY:
 (2) For HTTP API: use AWS::ApiGatewayV2::Api with ProtocolType: HTTP
 (3) Always include a Stage resource
 (4) AWS::ApiGateway::Stage: do NOT put LoggingLevel or DataTraceEnabled at the Stage Properties root — they are not permitted. Use MethodSettings (list of MethodSetting) with ResourcePath "*" and HttpMethod "*" if you need logging/tracing.
-(5) Lambda permission (AWS::Lambda::Permission) required for API Gateway to invoke Lambda — SourceArn must match the API
-(6) Use AWS::ApiGateway::RestApi for REST, AWS::ApiGatewayV2::Api for HTTP/WebSocket
-(7) Include CORS configuration if the API will be called from browsers
+(5) AWS::ApiGateway::Resource PathPart: only a-zA-Z0-9._-: or a path variable {name} or {proxy+}. No spaces. Variable names use only a-zA-Z0-9_ (e.g. {itemId} not {item-id} or {item id}) — otherwise "path part only allow..." validation fails.
+(6) Lambda permission (AWS::Lambda::Permission) required for API Gateway to invoke Lambda — SourceArn must match the API
+(7) Use AWS::ApiGateway::RestApi for REST, AWS::ApiGatewayV2::Api for HTTP/WebSocket
+(8) Include CORS configuration if the API will be called from browsers
 
 S3:
 (1) BucketName must be 3–63 characters and globally unique. To avoid "already exists" on redeploy or multiple stacks, use a Parameter BucketNameSuffix (Type: String, Default: "files" or empty). Set BucketName to !Sub 'app-${AWS::AccountId}-${BucketNameSuffix}'. The provisioner auto-injects a short timestamp suffix when not overridden, so names are unique (e.g. app-123456789012-12345678). Omit BucketName only if you do not need a predictable name.
@@ -551,7 +647,8 @@ S3:
 (6) Block public access unless explicitly needed for static hosting
 
 CLOUDFRONT:
-(1) AWS::CloudFront::Distribution has two top-level Properties: DistributionConfig (required) and Tags (optional). Do NOT put Tags inside DistributionConfig — "extraneous key [Tags] is not permitted" there; put Tags as a sibling of DistributionConfig.
+(1) CloudFront resources (AWS::CloudFront::*) are stripped before provision — they are never deployed. Prefer not to include CloudFront unless the user explicitly asks; if included, the rest of the stack will deploy without CloudFront.
+(2) If you do include CloudFront in the template: DistributionConfig and Tags as siblings; ViewerProtocolPolicy inside DefaultCacheBehavior only; use TargetOriginId not OriginId.
 
 DYNAMODB:
 (1) BillingMode: PAY_PER_REQUEST for dev (no capacity planning needed), PROVISIONED for production
@@ -625,7 +722,9 @@ NEVER DO:
 - Forget DependsOn for API Gateway Deployment on Method resources
 - Put ScaleInCooldown or ScaleOutCooldown inside TargetTrackingConfiguration of AWS::AutoScaling::ScalingPolicy — not permitted; use Cooldown or EstimatedInstanceWarmup at policy level only
 - Put LoggingLevel or DataTraceEnabled at AWS::ApiGateway::Stage Properties root — not permitted; use MethodSettings with a MethodSetting entry (ResourcePath "*", HttpMethod "*") for logging/tracing
-- Put Tags inside DistributionConfig of AWS::CloudFront::Distribution — not permitted; Tags must be a top-level property of the resource (sibling to DistributionConfig)
+- Put Tags or ViewerProtocolPolicy inside DistributionConfig root of AWS::CloudFront::Distribution — Tags at resource level only; ViewerProtocolPolicy inside DefaultCacheBehavior/CacheBehaviors only
+- Use OriginId in CloudFront DefaultCacheBehavior or CacheBehaviors — use TargetOriginId (required); OriginId is not permitted there
+- Use spaces or hyphens in API Gateway Resource PathPart (e.g. {item-id}, "item id") — path part allows only a-zA-Z0-9._-: and path variables {name} with name = a-zA-Z0-9_ only; use {itemId} not {item-id}
 - Use ASG CreationPolicy that requires resource signals (MinSuccessfulInstancesPercent, WaitOnResourceSignals) without UserData that runs cfn-signal — causes "Received 0 SUCCESS signal(s)" and CREATE_FAILED; omit CreationPolicy on ASG instead
 - For AWS::EC2::LaunchTemplate do NOT use TagSpecifications at resource level with ResourceType "instance" — causes "'instance' is not a valid taggable resource type"; use ResourceType "launch-template" for tags on the launch template; put instance/volume tags inside LaunchTemplateData.TagSpecifications
 - Use No export named ImportValue references — keep everything in one template
@@ -1023,6 +1122,8 @@ def provision_cfn_stack(
         pass  # parse failed; let CloudFormation validate later
     # Strip invalid keys that cause "extraneous key not permitted" (e.g. ScaleInCooldown/ScaleOutCooldown inside TargetTrackingConfiguration)
     template_body = _normalize_cfn_template_for_provision(template_body)
+    # Ignore CloudFront: remove all AWS::CloudFront::* resources so we never provision them (cache policy / OAC quirks)
+    template_body = _strip_cloudfront_from_template(template_body)
     cfn = get_cfn_client()
     try:
         # Check if stack exists

@@ -886,6 +886,7 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
         const TOOL_DISPLAY_NAMES = {
             generate_architecture_overview: 'Architecture',
             build_cfn_template: 'Template',
+            get_resource_schema_information: 'Schema',
             validate_cfn_template: 'Validate',
             provision_cfn_stack: 'Provision',
             delete_cfn_stack: 'Delete',
@@ -1185,7 +1186,8 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                     if (isPasswordLike(p)) {
                         userParams[key] = generateInitialPassword();
                     } else {
-                        userParams[key] = getDefaultForParameter(key);
+                        const def = getDefaultForParameter(key);
+                        if (def !== undefined) userParams[key] = def;
                     }
                 }
                 const parameters = Object.entries(userParams).map(([k, v]) => ({ ParameterKey: k, ParameterValue: String(v) }));
@@ -1240,6 +1242,8 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
             if (k === 'keypairname') return 'default';
             if (k === 'databaseusername' || k === 'dbusername') return 'admin';
             if (k === 'instancetype') return 't3.micro';
+            // VPC params: leave undefined so MCP server fills with default VPC / hardcoded vpc-0ca2fc76 (never send literal "default")
+            if (k === 'vpcid' || k === 'publicsubnetids' || k === 'privatesubnetids') return undefined;
             return 'default';
         }
         function escapeHtml(s) {

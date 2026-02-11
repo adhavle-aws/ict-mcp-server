@@ -4,6 +4,7 @@ import boto3
 import yaml
 import json
 import os
+import re
 import time
 
 # CRITICAL: stateless_http=True is required for AgentCore
@@ -19,14 +20,55 @@ BEDROCK_MODEL_ID_CFN_BUILDER = os.environ.get(
     "BEDROCK_MODEL_ID_CFN_BUILDER",
     BEDROCK_MODEL_ID,
 )
+# Read-only mode: when set (MCP_READONLY=true), provision_cfn_stack and delete_cfn_stack return an error (no mutating actions).
+READONLY_MODE = os.environ.get("MCP_READONLY", "").lower() in ("true", "1", "yes")
 
 # Expose ASGI app for AgentCore
 app = mcp.streamable_http_app
 
-def get_cfn_client():
-    """Get CloudFormation client with region from environment"""
-    region = os.environ.get('AWS_REGION', 'us-east-1')
+def get_cfn_client(region=None):
+    """Get CloudFormation client; region from arg or env."""
+    region = region or os.environ.get('AWS_REGION', 'us-east-1')
     return boto3.client('cloudformation', region_name=region)
+
+
+def get_ec2_client(region=None):
+    """Get EC2 client; region from arg or env."""
+    region = region or os.environ.get('AWS_REGION', 'us-east-1')
+    return boto3.client('ec2', region_name=region)
+
+
+# Hardcoded VPC for demo when default VPC is not available (or to force this VPC).
+HARDCODED_DEFAULT_VPC_ID = "vpc-0ca2fc76"
+
+
+def _get_subnet_ids_for_vpc(vpc_id: str, region=None):
+    """Return list of subnet IDs for the given VPC."""
+    try:
+        ec2 = get_ec2_client(region=region)
+        subnets = ec2.describe_subnets(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}]).get('Subnets', [])
+        return [s['SubnetId'] for s in subnets]
+    except Exception:
+        return []
+
+
+def _get_default_vpc_and_subnets(region=None):
+    """Return (vpc_id, list of subnet_ids) for the default VPC, or hardcoded demo VPC, or (None, []) if none."""
+    try:
+        ec2 = get_ec2_client(region=region)
+        vpcs = ec2.describe_vpcs(Filters=[{'Name': 'is-default', 'Values': ['true']}]).get('Vpcs', [])
+        if vpcs:
+            vpc_id = vpcs[0]['VpcId']
+            subnet_ids = _get_subnet_ids_for_vpc(vpc_id, region=region)
+            return vpc_id, subnet_ids
+        # Fallback to hardcoded demo VPC
+        subnet_ids = _get_subnet_ids_for_vpc(HARDCODED_DEFAULT_VPC_ID, region=region)
+        if subnet_ids:
+            return HARDCODED_DEFAULT_VPC_ID, subnet_ids
+        return None, []
+    except Exception:
+        return None, []
+
 
 def get_bedrock_client():
     """Get Bedrock Runtime client with region from environment"""
@@ -72,13 +114,14 @@ def _extract_content_from_converse_response(response):
     return {"text": "".join(text_parts), "thinking": "".join(thinking_parts)}
 
 
-def converse_with_retry(bedrock, model_id, system_prompt, user_message, max_tokens=4096, max_retries=3, enable_thinking=True, thinking_budget=4096, temperature=None, top_p=None, top_k=None):
+def converse_with_retry(bedrock, model_id, system_prompt, user_message, max_tokens=4096, max_retries=3, enable_thinking=True, thinking_budget=4096, temperature=None, top_p=None, top_k=None, system_cache_ttl=None):
     """Call Bedrock Converse API with exponential backoff retry. Returns the raw response dict.
     When enable_thinking=True: uses extended thinking (CoT) via additionalModelRequestFields; temperature omitted.
     When enable_thinking=False: no thinking, uses temperature (default 0.2) for faster/simpler tasks.
     thinking_budget: max tokens for reasoning when enable_thinking=True (min 1024).
     temperature: 0 = most consistent, higher = more diverse (only when enable_thinking=False).
-    top_p: inferenceConfig topP (0-1); top_k: passed via additionalModelRequestFields when set (e.g. 1 for consistent)."""
+    top_p: inferenceConfig topP (0-1); top_k: passed via additionalModelRequestFields when set (e.g. 1 for consistent).
+    system_cache_ttl: optional '5m' or '1h' to enable Converse prompt caching for the system block (cachePoint); None = no cache."""
     if enable_thinking:
         inference_config = {"maxTokens": max_tokens}
         additional = {"thinking": {"type": "enabled", "budget_tokens": max(1024, thinking_budget)}}
@@ -88,12 +131,16 @@ def converse_with_retry(bedrock, model_id, system_prompt, user_message, max_toke
         if top_p is not None and temperature is None:
             inference_config["topP"] = top_p
         additional = {"top_k": top_k} if top_k is not None else None
+    # Converse API uses cachePoint (not cache_control). System is array: text block then optional cachePoint block.
+    system_blocks = [{"text": system_prompt}]
+    if system_cache_ttl in ("5m", "1h"):
+        system_blocks.append({"cachePoint": {"type": "default", "ttl": system_cache_ttl}})
     for attempt in range(max_retries):
         try:
             kwargs = {
                 "modelId": model_id,
                 "messages": [{"role": "user", "content": [{"text": user_message}]}],
-                "system": [{"text": system_prompt}],
+                "system": system_blocks,
                 "inferenceConfig": inference_config,
             }
             if additional is not None:
@@ -122,6 +169,63 @@ def _log_timing(stage: str, tool: str, t_start: float, t_end: float = None, extr
     if extra:
         msg += f" | {extra}"
     print(msg)
+
+
+# In-memory cache for CloudFormation resource schemas (describe_type) to avoid repeated API calls
+_resource_schema_cache = {}
+
+# Resource types to fetch schema for and inject into build_cfn_template (reduces deploy failures)
+_KEY_SCHEMA_TYPES_FOR_BUILDER = ["AWS::RDS::DBInstance", "AWS::EC2::LaunchTemplate"]
+
+
+def _schema_summary_for_builder(resource_type: str, max_chars: int = 2000) -> str:
+    """Fetch schema for resource_type and return a short summary (required + property names) for the template builder."""
+    result = get_resource_schema_information(resource_type)
+    if not result.get("success") or not result.get("schema"):
+        return f"{resource_type}: (schema unavailable: {result.get('error', 'unknown')})"
+    schema = result["schema"]
+    parts = [f"{resource_type}:"]
+    if isinstance(schema.get("required"), list) and schema["required"]:
+        parts.append(f"  required: {schema['required']}")
+    props = schema.get("properties")
+    if isinstance(props, dict):
+        keys = list(props.keys())[:50]
+        parts.append(f"  properties (sample): {keys}")
+    return "\n".join(parts)[:max_chars]
+
+
+@mcp.tool()
+def get_resource_schema_information(resource_type: str, region: str = None) -> dict:
+    """
+    Get CloudFormation schema for an AWS resource type. Use this to ensure templates use
+    correct property names, types, and required fields — reduces deploy failures.
+
+    Args:
+        resource_type: AWS resource type (e.g. "AWS::S3::Bucket", "AWS::RDS::DBInstance",
+                       "AWS::EC2::LaunchTemplate", "AWS::Lambda::Function").
+        region: Optional AWS region (default: from AWS_REGION env or us-east-1).
+
+    Returns:
+        dict with schema from CloudFormation describe_type (JSON schema for the resource).
+        Use it when building or fixing templates to match exact property names and constraints.
+    """
+    if not resource_type or not resource_type.strip():
+        return {"success": False, "error": "resource_type is required (e.g. AWS::S3::Bucket)"}
+    resource_type = resource_type.strip()
+    cache_key = f"{region or 'default'}:{resource_type}"
+    if cache_key in _resource_schema_cache:
+        return {"success": True, "resource_type": resource_type, "schema": _resource_schema_cache[cache_key], "cached": True}
+    cfn = get_cfn_client(region=region)
+    try:
+        resp = cfn.describe_type(Type="RESOURCE", TypeName=resource_type)
+        schema_str = resp.get("Schema")
+        if not schema_str:
+            return {"success": False, "error": f"No schema returned for {resource_type}"}
+        schema = json.loads(schema_str)
+        _resource_schema_cache[cache_key] = schema
+        return {"success": True, "resource_type": resource_type, "schema": schema, "cached": False}
+    except Exception as e:
+        return {"success": False, "error": str(e), "resource_type": resource_type}
 
 
 @mcp.tool()
@@ -174,20 +278,298 @@ def build_cfn_template(prompt: str, format: str = "yaml") -> dict:
     try:
         bedrock = get_bedrock_client()
         print("[build_cfn_template] enable_thinking=False (speed-optimized)")
-        # Condensed prompt: same rules, fewer tokens for faster input and focused output
-        system_prompt = """CloudFormation expert. Generate VALID templates only.
-AMI paths (SSM): Use ONLY /aws/service/ami-amazon-linux-latest/ (e.g. al2023-ami-kernel-6.1-x86_64, al2023-ami-kernel-6.1-arm64). NEVER /aws/service/ami-amazon-linux-2023/.
+        # CFN template builder tool: deployable templates with defaults, Secrets Manager, no Cognito
+        system_prompt = """CloudFormation expert. CFN template builder tool. Generate VALID, DEPLOYABLE templates only.
+Templates must deploy successfully with ZERO manual input — all parameters must have default values.
 
-Rules: (1) Every Ref, GetAtt, DependsOn must reference a resource defined in this template. (2) AWSTemplateFormatVersion: '2010-09-09'. (3) Return ONLY YAML or JSON, no commentary.
-Identifiers: RDS DBInstanceIdentifier max 63 chars, start with letter; use short names e.g. "appdb", "mydb01".
-Versions: RDS use latest stable (MySQL 8.0.43, PostgreSQL 16.x/15.x, Aurora 3.04+). Lambda use python3.12, nodejs20.x. No deprecated versions."""
+CRITICAL — NO NEW VPC:
+You MUST NOT create any of these resources: AWS::EC2::VPC, AWS::EC2::Subnet, AWS::EC2::InternetGateway, AWS::EC2::VPCGatewayAttachment, AWS::EC2::NATGateway, AWS::EC2::EIP, AWS::EC2::RouteTable, AWS::EC2::Route, AWS::EC2::SubnetRouteTableAssociation. Account VPC limits are often reached. Instead, ALWAYS use Parameters: VpcId (AWS::EC2::VPC::Id), PublicSubnetIds (List<AWS::EC2::Subnet::Id>), PrivateSubnetIds (List<AWS::EC2::Subnet::Id>). Reference them with !Ref VpcId, !Ref PublicSubnetIds, !Ref PrivateSubnetIds. Do not include a Resources section for VPC, Subnet, IGW, NAT, or Route — only parameters.
+
+TEMPLATE STRUCTURE:
+(1) AWSTemplateFormatVersion: '2010-09-09'
+(2) Always include Description
+(3) Return ONLY YAML, no commentary, no markdown code blocks
+(4) Every Ref, Fn::GetAtt, DependsOn must reference a resource defined in this template
+(5) No circular dependencies between resources
+(6) Keep all resource names under 32 characters where AWS enforces it (ALB Name, Target Group Name) — omit Name or use short literal; never use stack name for these
+
+PARAMETERS (CRITICAL — every parameter MUST have a Default value):
+(1) EVERY parameter must include a Default value so the template deploys without manual input
+(2) For environment: Default: 'dev' with AllowedValues: [dev, staging, prod]
+(3) For instance types: Default: 't3.micro' for dev, 't3.medium' for prod
+(4) Do NOT add parameters for VPC CIDR or subnet CIDRs — we never create VPC/Subnets; use Parameters VpcId, PublicSubnetIds, PrivateSubnetIds only.
+(6) For allocated storage: Default: '20' (minimum for gp3)
+(7) For names: Default using descriptive short names
+(8) For ports: Default appropriate port (5432 for PostgreSQL, 443 for HTTPS, 80 for HTTP)
+(9) For retention periods: Default: 7
+(10) For scaling: MinSize Default 1, MaxSize Default 3, DesiredCapacity Default 1
+
+PASSWORD AND SECRET HANDLING:
+(1) PREFERRED: Use AWS::SecretsManager::Secret with GenerateSecretString to auto-generate credentials:
+    DBSecret:
+      Type: AWS::SecretsManager::Secret
+      Properties:
+        Name: !Sub '${AWS::StackName}-db-secret'
+        Description: Auto-generated database credentials
+        GenerateSecretString:
+          SecretStringTemplate: '{"username": "dbadmin"}'
+          GenerateStringKey: password
+          PasswordLength: 24
+          ExcludePunctuation: false
+          ExcludeCharacters: '"@/\\'
+        Tags:
+          - Key: stack-creator
+            Value: aws-architect-mcp
+          - Key: project
+            Value: mwc-demo
+    Then reference in RDS:
+      MasterUsername: !Sub '{{resolve:secretsmanager:${DBSecret}:SecretString:username}}'
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DBSecret}:SecretString:password}}'
+(2) ALTERNATIVE: ManageMasterUserPassword: true on RDS to let Secrets Manager handle it automatically
+(3) FALLBACK ONLY: If neither Secrets Manager pattern is used, create a password parameter with:
+    - NoEcho: true
+    - MinLength: 12
+    - MaxLength: 41
+    - AllowedPattern: '^[a-zA-Z][a-zA-Z0-9@#$%^&+=]*$'
+    - ConstraintDescription: 'Must start with a letter. 12-41 chars. Alphanumeric and @#$%^&+= only.'
+    - Default: 'ChangeMe12345!' with Description saying 'Default for dev — CHANGE FOR PRODUCTION'
+(4) NEVER leave a password parameter without a default — it blocks automated deployment
+(5) For API keys or tokens: always use AWS::SecretsManager::Secret with GenerateSecretString
+(6) AWS::SecretsManager::Secret: to get the ARN use !Ref SecretResource (Ref returns the ARN). Do NOT use !GetAtt SecretResource.Arn — Arn does not exist in the schema and causes "Requested attribute Arn does not exist in schema".
+
+PARAMETER TEMPLATE (use this pattern for all templates):
+  Parameters:
+    Environment:
+      Type: String
+      Default: dev
+      AllowedValues: [dev, staging, prod]
+      Description: Deployment environment
+    InstanceType:
+      Type: String
+      Default: t3.micro
+      AllowedValues: [t3.micro, t3.small, t3.medium, t3.large]
+      Description: EC2 instance type
+    LatestAmiId:
+      Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+      Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
+      Description: Latest Amazon Linux 2023 AMI
+    VpcId:
+      Type: AWS::EC2::VPC::Id
+      Description: Existing VPC ID (use default VPC for demo)
+    PublicSubnetIds:
+      Type: List<AWS::EC2::Subnet::Id>
+      Description: At least 2 subnet IDs for ALB (e.g. default VPC subnets)
+    PrivateSubnetIds:
+      Type: List<AWS::EC2::Subnet::Id>
+      Description: At least 2 subnet IDs for ASG and RDS (for default VPC use same as PublicSubnetIds)
+    DBInstanceIdentifierSuffix:
+      Type: String
+      Default: appdb
+      Description: Suffix for RDS identifier (appDB-{suffix}). Provisioner auto-fills a short unique value (e.g. last 8 digits of timestamp) when not overridden — keeps names unique and under 63 chars.
+    DBInstanceClass:
+      Type: String
+      Default: db.t3.micro
+      AllowedValues: [db.t3.micro, db.t3.small, db.t3.medium, db.t3.large]
+      Description: RDS instance class
+    DBAllocatedStorage:
+      Type: Number
+      Default: 20
+      MinValue: 20
+      MaxValue: 1000
+      Description: Database storage in GB
+    LambdaMemorySize:
+      Type: Number
+      Default: 256
+      AllowedValues: [128, 256, 512, 1024, 2048]
+      Description: Lambda memory in MB
+    LambdaTimeout:
+      Type: Number
+      Default: 30
+      MinValue: 3
+      MaxValue: 900
+      Description: Lambda timeout in seconds
+    AutoScalingMinSize:
+      Type: Number
+      Default: 1
+      Description: Minimum instances in ASG
+    AutoScalingMaxSize:
+      Type: Number
+      Default: 3
+      Description: Maximum instances in ASG
+    AutoScalingDesiredCapacity:
+      Type: Number
+      Default: 1
+      Description: Desired instances in ASG
+Only include parameters relevant to the requested architecture. Do not include RDS parameters if no database is requested. Do not include ASG parameters if no auto scaling is requested.
+
+AMI PATHS:
+Use ONLY /aws/service/ami-amazon-linux-latest/ prefix.
+Valid: al2023-ami-kernel-6.1-x86_64, al2023-ami-kernel-6.1-arm64
+NEVER use /aws/service/ami-amazon-linux-2023/
+Declare as Parameter with Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id> and Default value.
+
+NAMING:
+(1) NEVER hardcode resource names — let CloudFormation auto-generate to avoid conflicts on stack updates and replacements
+(2) If a name IS required: for S3 BucketName, NEVER use AWS::StackName — stack names often exceed 63 chars. Use !Sub 'app-${AWS::AccountId}' or omit BucketName so CloudFormation assigns a valid name. For other resources, !Sub '${AWS::StackName}-purpose' is OK if the result is short enough.
+(3) RDS DBInstanceIdentifier: must be UNIQUE in the region. Use !Sub 'appDB-${DBInstanceIdentifierSuffix}' with Parameter DBInstanceIdentifierSuffix (default "appdb"). The provisioner auto-injects a short unique suffix when not overridden, so identifier stays unique and under 63 chars. Never use a bare literal only.
+(4) Stack names used in resource names can cause length overflow. Keep ALL resource names that have length limits under 32 characters where AWS enforces it (ALB, Target Group, etc.). Exceptions — NEVER use stack name, use short literal or omit: DBInstanceIdentifier (max 63), S3 BucketName (3–63), ALB Name (max 32), Target Group Name (max 32). For any Name/Identifier with a 32-char limit, omit the property or use a short literal like "app-alb", "app-tg".
+
+NETWORKING / VPC (ALWAYS USE EXISTING VPC):
+(1) Never create VPC, Subnets, InternetGateway, VPCGatewayAttachment, NATGateway, EIP, RouteTable, Route, or SubnetRouteTableAssociation. Always use an existing VPC via parameters (deployer can pass default VPC).
+(2) Add these Parameters: VpcId (Type: AWS::EC2::VPC::Id, Description: "Existing VPC ID (e.g. default VPC)"), PublicSubnetIds (Type: List<AWS::EC2::Subnet::Id>, Description: "At least 2 subnet IDs for ALB"), PrivateSubnetIds (Type: List<AWS::EC2::Subnet::Id>, Description: "At least 2 subnet IDs for ASG and RDS; for default VPC use same as PublicSubnetIds").
+(3) All SecurityGroups: VpcId: !Ref VpcId. ALB Subnets: !Ref PublicSubnetIds. ASG VPCZoneIdentifier: !Ref PrivateSubnetIds. DBSubnetGroup SubnetIds: !Ref PrivateSubnetIds.
+(4) Deployer passes VPC ID and subnet IDs at stack create/update (e.g. default VPC from aws ec2 describe-vpcs --filters Name=is-default,Values=true). No new VPC is ever created by the template.
+
+SECURITY GROUPS:
+(1) Always include both ingress and egress rules
+(2) Use Ref to reference security groups in the same template — never hardcode sg- IDs
+(3) For self-referencing security groups, use SourceSecurityGroupId with Ref
+(4) Default egress should allow all outbound: CidrIp 0.0.0.0/0, IpProtocol -1
+(5) NEVER use an empty SecurityGroupIngress or SecurityGroupEgress list — omit the property entirely if no rules
+(6) For ALB security groups: allow inbound 80 and 443 from 0.0.0.0/0
+(7) For app security groups: allow inbound only from ALB security group
+(8) For DB security groups: allow inbound only from app security group on the database port
+
+EC2 / AUTO SCALING:
+(1) Do NOT include KeyName unless explicitly requested — it requires a pre-existing key pair
+(2) Use LaunchTemplate (not LaunchConfiguration — it is deprecated)
+(3) Auto Scaling Group needs MinSize, MaxSize, DesiredCapacity — all parameterized with defaults
+(4) ASG must reference subnets via VPCZoneIdentifier (list of subnet IDs)
+(5) ALB requires at least 2 subnets in different AZs
+(6) ALB Name (Load Balancer) and Target Group Name: BOTH max 32 characters. Omit Name on both resources so CloudFormation auto-generates, or use short literals (e.g. "app-alb", "app-tg"). NEVER use !Sub with AWS::StackName for ALB or Target Group — causes CREATE_FAILED.
+(7) ALB Target Group health check: use proper path (default /), healthy threshold, interval
+(8) For ASG with ALB, use TargetGroupARNs (not LoadBalancerNames)
+(9) Do NOT use CreationPolicy on ASG that requires SUCCESS signals (e.g. MinSuccessfulInstancesPercent, WaitOnResourceSignals) unless UserData explicitly runs cfn-signal when the instance is ready. Otherwise you get "Received 0 SUCCESS signal(s) out of 2. Unable to satisfy 100% MinSuccessfulInstancesPercent" and CREATE_FAILED. Prefer omitting CreationPolicy/UpdatePolicy on ASG so the stack completes when the ASG is created; instances can still launch and register with the ALB.
+(10) UserData must be Base64 encoded using Fn::Base64
+(11) AWS::EC2::LaunchTemplate: TagSpecifications at the resource level (same level as LaunchTemplateData) apply to the launch template itself — use ResourceType: "launch-template" ONLY there. Do NOT use ResourceType: "instance" at the LaunchTemplate resource level or you get "'instance' is not a valid taggable resource type". To tag instances/volumes when instances are launched, put TagSpecifications inside LaunchTemplateData with ResourceType: "instance" or "volume".
+
+RDS:
+(1) Engine: postgres, EngineVersion: '16' ONLY (use major version "16" so RDS selects the default available minor; do not pin to "16.3" — it can be deprecated or unavailable and causes "Cannot find version 16.3"). No MySQL, no Aurora, no other versions.
+(2) DBInstanceIdentifier: set to !Sub 'appDB-${DBInstanceIdentifierSuffix}' with Parameter DBInstanceIdentifierSuffix (default "appdb"). Provisioner auto-injects a short unique suffix when not overridden — keeps identifier unique and under 63 chars. Never use bare literal only. Never use AWS::StackName (exceeds 63 chars).
+(3) MasterUsername: 'dbadmin' (NEVER 'admin' — it is reserved for some engines)
+(4) PREFER Secrets Manager pattern or ManageMasterUserPassword: true — if using password parameter it MUST have a default
+(5) AllocatedStorage: parameterized, default 20, minimum 20 for gp3
+(6) DBSubnetGroup: REQUIRED for VPC deployment, needs subnets in at least 2 AZs
+(7) MultiAZ: true for production, false for dev (use Condition based on Environment parameter)
+(8) DeletionPolicy: Snapshot (so data is preserved on stack deletion)
+(9) BackupRetentionPeriod: at least 7
+(10) StorageType: gp3 (not gp2)
+(11) DBInstanceClass: parameterized, default db.t3.micro
+(12) PubliclyAccessible: false (always in private subnet)
+(13) StorageEncrypted: true
+
+LAMBDA:
+(1) Runtime: python3.12 or nodejs20.x ONLY — no deprecated runtimes
+(2) For simple functions, use inline Code with ZipFile — do NOT reference S3 buckets that may not exist
+(3) Always include a Lambda execution role with basic logging permissions (logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents)
+(4) Handler format: for Python use index.handler (with ZipFile), for Node.js use index.handler
+(5) Timeout: parameterized, default 30 (default 3s is usually too short)
+(6) MemorySize: parameterized, default 256
+(7) For Lambda in VPC: needs security group, private subnets, and NAT Gateway for internet access
+
+API GATEWAY:
+(1) For REST API: AWS::ApiGateway::Deployment MUST have DependsOn on ALL Method resources
+(2) For HTTP API: use AWS::ApiGatewayV2::Api with ProtocolType: HTTP
+(3) Always include a Stage resource
+(4) Lambda permission (AWS::Lambda::Permission) required for API Gateway to invoke Lambda — SourceArn must match the API
+(5) Use AWS::ApiGateway::RestApi for REST, AWS::ApiGatewayV2::Api for HTTP/WebSocket
+(6) Include CORS configuration if the API will be called from browsers
+
+S3:
+(1) BucketName must be 3–63 characters. PREFER omitting BucketName so CloudFormation auto-generates a valid name.
+(2) If BucketName is specified: use a SHORT prefix + AccountId, e.g. !Sub 'app-${AWS::AccountId}' or 'data-${AWS::AccountId}'. NEVER use AWS::StackName in BucketName — stack names can exceed 63 chars and will cause InternalFailure.
+(3) For static website hosting, include WebsiteConfiguration
+(4) DeletionPolicy: Retain for important data buckets
+(5) Enable versioning for data buckets
+(6) Block public access unless explicitly needed for static hosting
+
+DYNAMODB:
+(1) BillingMode: PAY_PER_REQUEST for dev (no capacity planning needed), PROVISIONED for production
+(2) Always define KeySchema and AttributeDefinitions
+(3) PointInTimeRecoverySpecification: PointInTimeRecoveryEnabled: true
+(4) SSESpecification: SSEEnabled: true
+
+IAM:
+(1) Use least-privilege policies
+(2) Always use AssumeRolePolicyDocument with correct service principal
+(3) Lambda principal: lambda.amazonaws.com
+(4) EC2 principal: ec2.amazonaws.com
+(5) For EC2 instances, create InstanceProfile that references the Role
+(6) NEVER use wildcard Resource: '*' with dangerous actions — scope to specific ARNs where possible
+(7) Use managed policies where appropriate (e.g. AmazonSSMManagedInstanceCore for EC2)
+(8) When granting access to a Secrets Manager secret in an IAM policy, use !Ref SecretResource for the Resource ARN — never !GetAtt SecretResource.Arn (invalid).
+
+DEPENDENCIES (explicit DependsOn required):
+(1) NAT Gateway → DependsOn: VPCGatewayAttachment
+(2) EIP for NAT → DependsOn: VPCGatewayAttachment
+(3) Any route to IGW → DependsOn: VPCGatewayAttachment
+(4) API Gateway Deployment → DependsOn: all API Gateway Method resources
+(5) RDS Instance → needs DBSubnetGroup (implicit via Ref, but add explicit if needed)
+(6) Lambda with VPC → needs VPC security group and subnets, and a NAT Gateway for internet access
+(7) Any resource that uses an EIP → DependsOn: VPCGatewayAttachment
+
+OUTPUTS:
+(1) Always include useful outputs: URLs, ARNs, resource IDs, connection strings
+(2) Use Fn::GetAtt for ARNs and DNS names where supported. For AWS::SecretsManager::Secret use !Ref (not GetAtt) to get the ARN — GetAtt Secret.Arn is invalid.
+(3) Export outputs that other stacks might need
+(4) For ALB: output the DNS name
+(5) For API Gateway: output the invoke URL
+(6) For RDS: output the endpoint address and port
+(7) For S3: output the bucket name and ARN
+(8) For Lambda: output the function ARN
+(9) For VPC: output VPC ID and subnet IDs
+
+TAGS:
+Every taggable resource must include:
+  - Key: stack-creator, Value: aws-architect-mcp
+  - Key: project, Value: mwc-demo
+  - Key: environment, Value: !Ref Environment
+
+NEVER DO:
+- Leave ANY parameter without a Default value
+- Leave password parameters without a default or Secrets Manager
+- Hardcode AZ names like us-east-1a — use Fn::GetAZs
+- Hardcode account IDs — use AWS::AccountId
+- Hardcode region names — use AWS::Region
+- Reference resources not defined in this template
+- Use !GetAtt on AWS::SecretsManager::Secret for Arn — use !Ref SecretResource to get the ARN instead
+- Use deprecated types (LaunchConfiguration, python3.8, nodejs16.x, etc.)
+- Create ALB with subnets in only one AZ
+- Create RDS without DBSubnetGroup in a VPC
+- Set RDS DBInstanceIdentifier to a bare literal only — use !Sub 'appDB-${DBInstanceIdentifierSuffix}' (default "appdb"; provisioner auto-injects unique short suffix). Do not use AWS::StackName (exceeds 63 chars).
+- Set S3 BucketName using AWS::StackName — BucketName must be 3–63 chars; use short prefix + AWS::AccountId or omit BucketName
+- Set ALB Name (AWS::ElasticLoadBalancingV2::LoadBalancer) or Target Group Name (AWS::ElasticLoadBalancingV2::TargetGroup) using AWS::StackName or any value longer than 32 chars — omit Name or use short literal ("app-alb", "app-tg"). Keep all ELBv2 names under 32 characters.
+- Create NAT Gateway without DependsOn VPCGatewayAttachment
+- Use 'admin' as RDS MasterUsername
+- Use empty SecurityGroupIngress or SecurityGroupEgress arrays
+- Leave Lambda without an execution role
+- Reference S3 objects for Lambda code — use inline ZipFile
+- Create a security group rule referencing a group not in this template
+- Use gp2 storage for RDS — use gp3
+- Set RDS PostgreSQL EngineVersion to "16.3" or any specific minor — use "16" (major only) so RDS picks the default available minor; 16.3 may not exist and causes "Cannot find version 16.3"
+- Create resources with PubliclyAccessible: true unless explicitly requested
+- Forget to add Lambda Permission for API Gateway integration
+- Forget DependsOn for API Gateway Deployment on Method resources
+- Use ASG CreationPolicy that requires resource signals (MinSuccessfulInstancesPercent, WaitOnResourceSignals) without UserData that runs cfn-signal — causes "Received 0 SUCCESS signal(s)" and CREATE_FAILED; omit CreationPolicy on ASG instead
+- For AWS::EC2::LaunchTemplate do NOT use TagSpecifications at resource level with ResourceType "instance" — causes "'instance' is not a valid taggable resource type"; use ResourceType "launch-template" for tags on the launch template; put instance/volume tags inside LaunchTemplateData.TagSpecifications
+- Use No export named ImportValue references — keep everything in one template
+- No Cognito user pool — do not use AWS::Cognito::UserPool, UserPoolClient, or any Cognito resources
+- Create VPC/Subnet/IGW/NAT/Route resources — always use Parameters VpcId, PublicSubnetIds, PrivateSubnetIds (deployer passes existing/default VPC)"""
+        # Inject official schema hints for key resource types so the model uses exact property names (reduces deploy failures)
+        try:
+            schema_parts = [_schema_summary_for_builder(rt) for rt in _KEY_SCHEMA_TYPES_FOR_BUILDER]
+            if schema_parts:
+                system_prompt += "\n\nOFFICIAL SCHEMA HINTS (use exact property names and required fields where applicable):\n" + "\n".join(schema_parts)
+        except Exception:
+            pass
         user_message = f"""Generate a CloudFormation template for: {prompt}
 
 Format: {format.upper()}. Verify every Ref and GetAtt points to a defined resource. Return ONLY the template."""
         t_bedrock = time.time()
         # CRITICAL: enable_thinking=False for speed. With thinking this tool takes 60-70s; without, ~15-35s.
         response = converse_with_retry(
-            bedrock, BEDROCK_MODEL_ID, system_prompt, user_message, max_tokens=25000, enable_thinking=False
+            bedrock, BEDROCK_MODEL_ID, system_prompt, user_message, max_tokens=25000, enable_thinking=False,
+            system_cache_ttl="1h"
         )
         _log_timing("bedrock_invoke", "build_cfn_template", t_bedrock)
         out = _extract_content_from_converse_response(response)
@@ -246,13 +628,30 @@ def validate_cfn_template(template_body: str, auto_fix: bool = True) -> dict:
     except Exception as e:
         error_message = str(e)
         
-        # If auto_fix is disabled, just return the error
+        # If auto_fix is disabled, just return the error (with violations shape for consistency with compliance tools)
         if not auto_fix:
             return {
                 'success': False,
                 'valid': False,
-                'error': error_message
+                'error': error_message,
+                'violations': [{
+                    'rule_id': 'TemplateValidation',
+                    'severity': 'ERROR',
+                    'resource': '',
+                    'resource_type': '',
+                    'message': error_message,
+                    'remediation': 'Run with auto_fix=true to attempt automatic fix, or correct the template manually.',
+                }],
             }
+        
+        # Optionally fetch official schema for resource type mentioned in error (reduces deploy failures)
+        schema_hint = ""
+        match = re.search(r"AWS::[A-Za-z0-9]+::[A-Za-z0-9]+", error_message)
+        if match:
+            rtype = match.group(0)
+            schema_result = get_resource_schema_information(rtype)
+            if schema_result.get("success") and schema_result.get("schema"):
+                schema_hint = f"\n\nOfficial CloudFormation schema for {rtype} (use exact property names and types):\n{json.dumps(schema_result['schema'], indent=2)[:12000]}"
         
         # Auto-fix: Use Claude to fix the template
         try:
@@ -264,7 +663,7 @@ Rules:
 1. Check all resource references (Ref, GetAtt, DependsOn)
 2. Ensure referenced resources exist
 3. Fix resource names and dependencies
-4. When touching RDS (AWS::RDS::DBInstance, AWS::RDS::DBCluster): set EngineVersion to latest stable (e.g. MySQL 8.0.43, PostgreSQL 16.x/15.x, Aurora 3.04+). Avoid deprecated versions.
+4. When touching RDS (AWS::RDS::DBInstance): for PostgreSQL use EngineVersion "16" (major only) so RDS picks the default minor; do not use "16.3" as it may not exist in all regions. Avoid deprecated versions.
 5. Return ONLY the fixed template
 6. No explanations"""
 
@@ -279,9 +678,9 @@ Common fixes:
 - If resource not found: Check spelling, add missing resource, or remove reference
 - If GetAtt fails: Verify resource exists and attribute is valid
 - If DependsOn fails: Ensure dependency resource exists
-- For RDS: Use latest EngineVersion (e.g. MySQL 8.0.43, PostgreSQL 16.x); do not leave old or deprecated versions.
+- For RDS PostgreSQL: Use EngineVersion "16" (major version only), not "16.3" — minor versions can be deprecated; "16" lets RDS choose the available default.
 
-Return ONLY the corrected template."""
+Return ONLY the corrected template.""" + schema_hint
 
             response = converse_with_retry(
                 bedrock, BEDROCK_MODEL_ID, system_prompt, user_message, max_tokens=16384
@@ -315,14 +714,30 @@ Return ONLY the corrected template."""
                     'fixed': False,
                     'error': f'Auto-fix attempted but validation still failed: {str(revalidation_error)}',
                     'original_error': error_message,
-                    'template': fixed_template
+                    'template': fixed_template,
+                    'violations': [{
+                        'rule_id': 'TemplateValidation',
+                        'severity': 'ERROR',
+                        'resource': '',
+                        'resource_type': '',
+                        'message': str(revalidation_error),
+                        'remediation': 'Review the fixed template and correct remaining errors, or try validate_cfn_template again with the updated template.',
+                    }],
                 }
                 
         except Exception as fix_error:
             return {
                 'success': False,
                 'valid': False,
-                'error': f'Validation failed: {error_message}. Auto-fix failed: {str(fix_error)}'
+                'error': f'Validation failed: {error_message}. Auto-fix failed: {str(fix_error)}',
+                'violations': [{
+                    'rule_id': 'TemplateValidation',
+                    'severity': 'ERROR',
+                    'resource': '',
+                    'resource_type': '',
+                    'message': error_message,
+                    'remediation': 'Auto-fix failed. Correct the template manually or retry.',
+                }],
             }
 
 
@@ -341,8 +756,35 @@ def provision_cfn_stack(
         template_body: CloudFormation template (YAML or JSON).
         capabilities: Optional list of capabilities (e.g. CAPABILITY_NAMED_IAM).
         parameters: Optional list of parameter dicts, each with ParameterKey and ParameterValue.
-                   Example: [{"ParameterKey": "DBPassword", "ParameterValue": "secret"}]
+                   If the template has VpcId, PublicSubnetIds, or PrivateSubnetIds and you omit them,
+                   the default VPC and its subnets are filled in automatically (no need to pass them).
     """
+    if READONLY_MODE:
+        return {
+            "success": False,
+            "error": "Server is in read-only mode. Provisioning is disabled. Set MCP_READONLY=false to allow stack create/update.",
+        }
+    # Reject templates that create VPC/Subnet/IGW/NAT (account limits; we use existing VPC only)
+    _FORBIDDEN_RESOURCE_TYPES = {
+        'AWS::EC2::VPC', 'AWS::EC2::Subnet', 'AWS::EC2::InternetGateway',
+        'AWS::EC2::VPCGatewayAttachment', 'AWS::EC2::NATGateway', 'AWS::EC2::EIP',
+        'AWS::EC2::RouteTable', 'AWS::EC2::Route', 'AWS::EC2::SubnetRouteTableAssociation',
+    }
+    try:
+        if template_body.strip().startswith('{'):
+            doc = json.loads(template_body)
+        else:
+            doc = yaml.safe_load(template_body)
+        resources = doc.get('Resources') or {}
+        found = [r for r, defn in resources.items() if isinstance(defn, dict) and defn.get('Type') in _FORBIDDEN_RESOURCE_TYPES]
+        if found:
+            types = list({resources[r].get('Type') for r in found if isinstance(resources.get(r), dict)})
+            return {
+                'success': False,
+                'error': f'Template must not create VPC resources (account limit). Found: {", ".join(types)}. Rebuild the template using Parameters VpcId, PublicSubnetIds, PrivateSubnetIds and references like !Ref VpcId (no AWS::EC2::VPC, Subnet, InternetGateway, NAT, Route).',
+            }
+    except Exception:
+        pass  # parse failed; let CloudFormation validate later
     cfn = get_cfn_client()
     try:
         # Check if stack exists
@@ -366,12 +808,79 @@ def provision_cfn_stack(
         if capabilities:
             params['Capabilities'] = capabilities
 
+        # Build parameter list: user-provided + auto-fill default VPC/subnets (never send literal "default" to CloudFormation)
+        user_params = {}
         if parameters:
-            params['Parameters'] = [
-                {'ParameterKey': p.get('ParameterKey'), 'ParameterValue': str(p.get('ParameterValue', ''))}
-                for p in parameters
-                if p.get('ParameterKey')
-            ]
+            for p in parameters:
+                if p.get('ParameterKey'):
+                    user_params[p['ParameterKey']] = str(p.get('ParameterValue', ''))
+        template_param_keys = set()
+        try:
+            if template_body.strip().startswith('{'):
+                template_param_keys = set(json.loads(template_body).get('Parameters', {}).keys())
+            else:
+                template_param_keys = set(yaml.safe_load(template_body).get('Parameters', {}).keys())
+        except Exception:
+            pass
+        # Keys that must never be sent as literal "default" (match case-insensitively)
+        VPC_PARAM_KEYS = ('VpcId', 'PublicSubnetIds', 'PrivateSubnetIds')
+        def _is_vpc_param_key(key):
+            return (key or '').strip().lower() in ('vpcid', 'publicsubnetids', 'privatesubnetids')
+        def _use_default_vpc_value(key):
+            val = (user_params.get(key) or '').strip().lower()
+            return not val or val == 'default'
+        # Check if we need to resolve VPC: either template has these params or client sent "default" for them
+        need_vpc = any(k for k in template_param_keys if _is_vpc_param_key(k)) or any(
+            _is_vpc_param_key(k) and _use_default_vpc_value(k) for k in user_params
+        )
+        if need_vpc:
+            default_subnet_ids = _get_subnet_ids_for_vpc(HARDCODED_DEFAULT_VPC_ID)
+            if default_subnet_ids:
+                default_vpc_id = HARDCODED_DEFAULT_VPC_ID
+            else:
+                default_vpc_id, default_subnet_ids = _get_default_vpc_and_subnets()
+            if default_vpc_id and default_subnet_ids:
+                subnet_val = ','.join(default_subnet_ids)
+                for key in list(user_params.keys()):
+                    if not _is_vpc_param_key(key):
+                        continue
+                    if not _use_default_vpc_value(key):
+                        continue
+                    if key.strip().lower() == 'vpcid':
+                        user_params[key] = default_vpc_id
+                    else:
+                        user_params[key] = subnet_val
+                # Also set canonical keys if template has them (so required params are present)
+                for ckey in VPC_PARAM_KEYS:
+                    if ckey in template_param_keys and _use_default_vpc_value(ckey):
+                        if ckey == 'VpcId':
+                            user_params[ckey] = default_vpc_id
+                        else:
+                            user_params[ckey] = subnet_val
+            for key in list(user_params.keys()):
+                if _is_vpc_param_key(key) and _use_default_vpc_value(key):
+                    return {
+                        'success': False,
+                        'error': f'Could not resolve default VPC/subnets for {key}. Ensure vpc-0ca2fc76 exists in this region and has subnets, or pass explicit parameter values.',
+                    }
+        # Auto-inject short unique RDS suffix on create when default "appdb" is used (avoids "identifier already exists")
+        if not stack_exists:
+            def _is_db_suffix_key(k):
+                return (k or '').strip().lower() == 'dbinstanceidentifiersuffix'
+            _db_suffix_key = next((k for k in template_param_keys if _is_db_suffix_key(k)), None)
+            if _db_suffix_key is not None:
+                current = (user_params.get(_db_suffix_key) or '').strip().lower()
+                if not current or current == 'appdb':
+                    # Short unique suffix: last 8 digits of epoch (appDB-12345678 fits 63-char limit)
+                    unique_suffix = str(int(time.time()))[-8:]
+                    user_params[_db_suffix_key] = unique_suffix
+        # Final safeguard: never send literal "default" for VPC params to CloudFormation
+        if user_params:
+            params['Parameters'] = []
+            for k, v in user_params.items():
+                if _is_vpc_param_key(k) and (v or '').strip().lower() == 'default':
+                    continue
+                params['Parameters'].append({'ParameterKey': k, 'ParameterValue': v})
 
         if stack_exists:
             response = cfn.update_stack(**params)
@@ -395,6 +904,11 @@ def provision_cfn_stack(
 @mcp.tool()
 def delete_cfn_stack(stack_name: str) -> dict:
     """Delete a CloudFormation stack by name."""
+    if READONLY_MODE:
+        return {
+            "success": False,
+            "error": "Server is in read-only mode. Deletion is disabled. Set MCP_READONLY=false to allow.",
+        }
     cfn = get_cfn_client()
     try:
         cfn.delete_stack(StackName=stack_name)

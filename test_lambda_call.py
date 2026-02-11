@@ -6,7 +6,8 @@ from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 import urllib.request
 
-AGENT_ARN = "arn:aws:bedrock-agentcore:us-east-1:905767016260:runtime/mcp_server-VpWbdyCLTH"
+# Deployed via deploy-agentcore.sh (cfn_mcp_server)
+AGENT_ARN = "arn:aws:bedrock-agentcore:us-east-1:611291728384:runtime/cfn_mcp_server-4KOBaDFd4a"
 REGION = "us-east-1"
 
 def call_mcp_tool(tool_name, arguments):
@@ -67,16 +68,13 @@ def call_mcp_tool(tool_name, arguments):
             print("Parsing as JSON")
             return json.loads(response_data)
 
-# Test with short prompt
-arch_overview_short = "3-tier web app with ALB, EC2, and RDS in us-east-1"
+# Test build_cfn_template with short prompt
+prompt_short = "3-tier web app with ALB, EC2, and RDS in us-east-1"
 
-print("Testing well_architected_review with SHORT prompt...")
-result = call_mcp_tool('well_architected_review', {'prompt': arch_overview_short})
-print(f"\nResult: {json.dumps(result, indent=2)[:500]}")
-
-# Test with long prompt
-arch_overview_long = """Here's the architecture overview: A highly available 3-tier web application architecture in AWS US-East-1 region consisting of: Web tier (presentation layer), Application tier (business logic), Database tier (data storage). Key Components: Web Tier with ALB and Auto Scaling, Application Tier with EC2 in private subnets, Database Tier with RDS Multi-AZ."""
-
-print("\n\nTesting well_architected_review with LONG prompt...")
-result2 = call_mcp_tool('well_architected_review', {'prompt': arch_overview_long})
-print(f"\nResult: {json.dumps(result2, indent=2)[:500]}")
+print("Testing build_cfn_template with SHORT prompt...")
+result = call_mcp_tool('build_cfn_template', {'prompt': prompt_short, 'format': 'yaml'})
+print(f"\nResult keys: {list(result.keys()) if isinstance(result, dict) else 'not a dict'}")
+if isinstance(result, dict) and result.get('success') and result.get('template'):
+    print(f"Template length: {len(result['template'])} chars")
+else:
+    print(f"Result: {json.dumps(result, indent=2)[:500]}")

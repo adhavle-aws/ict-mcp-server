@@ -9,11 +9,15 @@ import time
 # CRITICAL: stateless_http=True is required for AgentCore
 mcp = FastMCP(host="0.0.0.0", stateless_http=True)
 
-# Bedrock model for overview/template/cost/WAF (override with BEDROCK_MODEL_ID env).
-# Fastest: Claude Haiku 4.5 (~lowest latency, good for CFN/overview). Stronger but slower: Claude Sonnet 4.5.
+# Bedrock model for overview/cost/WAF/fix (override with BEDROCK_MODEL_ID env).
 BEDROCK_MODEL_ID = os.environ.get(
     "BEDROCK_MODEL_ID",
-    "global.anthropic.claude-haiku-4-5-20251001-v1:0",  # Haiku 4.5 – fastest; use claude-sonnet-4-5-* for higher quality
+    "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+)
+# Model for CFN template generation only (override with BEDROCK_MODEL_ID_CFN_BUILDER env). Default: same as BEDROCK_MODEL_ID (Claude Haiku 4.5).
+BEDROCK_MODEL_ID_CFN_BUILDER = os.environ.get(
+    "BEDROCK_MODEL_ID_CFN_BUILDER",
+    BEDROCK_MODEL_ID,
 )
 
 # Expose ASGI app for AgentCore
@@ -68,17 +72,22 @@ def _extract_content_from_converse_response(response):
     return {"text": "".join(text_parts), "thinking": "".join(thinking_parts)}
 
 
-def converse_with_retry(bedrock, model_id, system_prompt, user_message, max_tokens=4096, max_retries=3, enable_thinking=True, thinking_budget=4096):
+def converse_with_retry(bedrock, model_id, system_prompt, user_message, max_tokens=4096, max_retries=3, enable_thinking=True, thinking_budget=4096, temperature=None, top_p=None, top_k=None):
     """Call Bedrock Converse API with exponential backoff retry. Returns the raw response dict.
     When enable_thinking=True: uses extended thinking (CoT) via additionalModelRequestFields; temperature omitted.
-    When enable_thinking=False: no thinking, uses temperature for faster/simpler tasks (e.g. architecture overview).
-    thinking_budget: max tokens for reasoning when enable_thinking=True (min 1024); lower = faster, higher = more reasoning."""
+    When enable_thinking=False: no thinking, uses temperature (default 0.2) for faster/simpler tasks.
+    thinking_budget: max tokens for reasoning when enable_thinking=True (min 1024).
+    temperature: 0 = most consistent, higher = more diverse (only when enable_thinking=False).
+    top_p: inferenceConfig topP (0-1); top_k: passed via additionalModelRequestFields when set (e.g. 1 for consistent)."""
     if enable_thinking:
         inference_config = {"maxTokens": max_tokens}
         additional = {"thinking": {"type": "enabled", "budget_tokens": max(1024, thinking_budget)}}
     else:
-        inference_config = {"maxTokens": max_tokens, "temperature": 0.2}
-        additional = None  # No additionalModelRequestFields = no extended thinking (faster)
+        inference_config = {"maxTokens": max_tokens, "temperature": temperature if temperature is not None else 0.2}
+        # Model allows temperature OR top_p, not both—only add topP when not overriding temperature
+        if top_p is not None and temperature is None:
+            inference_config["topP"] = top_p
+        additional = {"top_k": top_k} if top_k is not None else None
     for attempt in range(max_retries):
         try:
             kwargs = {
@@ -105,30 +114,6 @@ def converse_with_retry(bedrock, model_id, system_prompt, user_message, max_toke
             raise
 
 
-@mcp.tool()
-def test_delay(seconds: int = 80) -> dict:
-    """
-    Sleep for the given number of seconds then return. Use this to verify
-    the UI/API does not timeout on long-running calls (e.g. >29s API Gateway limit).
-    Default 80 seconds.
-
-    Edge case tested: delay happens AFTER the request is sent and AFTER the
-    connection is established—i.e. during server-side processing (Lambda -> AgentCore
-    -> this tool). This confirms that a long-running tool execution (>29s) still
-    returns a response to the client (async Lambda + post_to_connection path).
-    """
-    start = time.time()
-    # Delay is here: during request processing, not before sending the request
-    time.sleep(max(0, int(seconds)))
-    elapsed = round(time.time() - start, 1)
-    return {
-        'success': True,
-        'message': f'Completed after {elapsed} seconds (no timeout)',
-        'requested_seconds': seconds,
-        'actual_seconds': elapsed,
-    }
-
-
 def _log_timing(stage: str, tool: str, t_start: float, t_end: float = None, extra: str = ""):
     """E2E diagnostics: log duration for a stage (seconds)."""
     t_end = t_end or time.time()
@@ -153,7 +138,7 @@ def generate_architecture_overview(prompt: str) -> dict:
 
 Keep response under 800 tokens. Use bullet points only.
 Include: (1) Executive Summary in 2 sentences (2) Component list: service + one-line purpose.
-Do NOT include cost, pricing, or monthly estimates."""
+Do NOT include cost, pricing, or monthly estimates. Do NOT include a "Key Design Decisions" section."""
         user_message = f"""Short architecture overview for: {prompt}"""
         t_bedrock = time.time()
         # No extended thinking for this tool = faster first response; other tools keep CoT.
@@ -223,209 +208,6 @@ Format: {format.upper()}. Verify every Ref and GetAtt points to a defined resour
     except Exception as e:
         _log_timing("total", "build_cfn_template", t0)
         return {'success': False, 'error': str(e)}
-
-
-def _load_cfn_template(template_body: str):
-    """Load CloudFormation template (YAML or JSON), handling intrinsic functions (!GetAtt, !Ref, etc.)."""
-    if template_body.strip().startswith('{'):
-        return json.loads(template_body)
-    # CloudFormation YAML uses intrinsic tags (!GetAtt, !Ref, !Sub, etc.) that PyYAML doesn't know.
-    # Register a constructor that treats any !... tag as plain data so we can parse for diagram.
-    def _cfn_intrinsic(loader, tag_suffix, node):
-        if isinstance(node, yaml.ScalarNode):
-            return loader.construct_scalar(node)
-        if isinstance(node, yaml.SequenceNode):
-            return loader.construct_sequence(node)
-        if isinstance(node, yaml.MappingNode):
-            return loader.construct_mapping(node)
-        return None
-
-    try:
-        yaml.add_multi_constructor('!', _cfn_intrinsic, Loader=yaml.SafeLoader)
-    except Exception:
-        pass  # already registered
-    return yaml.safe_load(template_body)
-
-
-def _generate_diagram_png(template_body: str, output_path: str) -> int:
-    """
-    Parse CloudFormation template, build diagram with Python 'diagrams' package,
-    write PNG to output_path. Returns number of resources drawn.
-    """
-    import tempfile
-    orig_cwd = os.getcwd()
-    from diagrams import Diagram
-    from diagrams.aws.compute import Lambda, ECS, EC2
-    from diagrams.aws.storage import S3
-    from diagrams.aws.database import RDS, Dynamodb, ElastiCache
-    from diagrams.aws.network import ELB, APIGateway, CloudFront, Route53
-    from diagrams.aws.analytics import Kinesis, Athena, Glue
-    from diagrams.aws.integration import SNS, SQS
-    from diagrams.generic.blank import Blank
-
-    try:
-        data = _load_cfn_template(template_body)
-    except Exception as e:
-        raise ValueError(f"Invalid template: {e}") from e
-
-    resources = data.get("Resources") or {}
-    if not resources:
-        raise ValueError("Template has no Resources")
-
-    # Map AWS::Service::ResourceType to (diagram_module, label_prefix)
-    TYPE_MAP = {
-        "AWS::Lambda::Function": (Lambda, "Lambda"),
-        "AWS::S3::Bucket": (S3, "S3"),
-        "AWS::DynamoDB::Table": (Dynamodb, "DynamoDB"),
-        "AWS::ApiGateway::RestApi": (APIGateway, "API"),
-        "AWS::ApiGatewayV2::Api": (APIGateway, "API"),
-        "AWS::ElasticLoadBalancingV2::LoadBalancer": (ELB, "ALB"),
-        "AWS::ECS::Service": (ECS, "ECS"),
-        "AWS::ECS::Cluster": (ECS, "Cluster"),
-        "AWS::EC2::Instance": (EC2, "EC2"),
-        "AWS::RDS::DBInstance": (RDS, "RDS"),
-        "AWS::ElastiCache::CacheCluster": (ElastiCache, "ElastiCache"),
-        "AWS::CloudFront::Distribution": (CloudFront, "CloudFront"),
-        "AWS::Route53::HostedZone": (Route53, "Route53"),
-        "AWS::Kinesis::Stream": (Kinesis, "Kinesis"),
-        "AWS::KinesisFirehose::DeliveryStream": (Kinesis, "Firehose"),
-        "AWS::Athena::WorkGroup": (Athena, "Athena"),
-        "AWS::Glue::Job": (Glue, "Glue"),
-        "AWS::Glue::Crawler": (Glue, "Crawler"),
-        "AWS::Glue::Database": (Glue, "GlueDB"),
-        "AWS::SNS::Topic": (SNS, "SNS"),
-        "AWS::SQS::Queue": (SQS, "SQS"),
-        "AWS::StepFunctions::StateMachine": (Blank, "StepFunctions"),
-    }
-
-    # Collect dependencies for edges (Ref and simple DependsOn)
-    def get_refs(props):
-        refs = []
-        if not isinstance(props, dict):
-            return refs
-        if "Ref" in props and isinstance(props["Ref"], str):
-            refs.append(props["Ref"])
-        for v in props.values():
-            if isinstance(v, dict):
-                refs.extend(get_refs(v))
-            elif isinstance(v, list):
-                for item in v:
-                    if isinstance(item, dict):
-                        refs.extend(get_refs(item))
-        return refs
-
-    # diagrams writes to cwd; use output_dir and a fixed name so we know the path
-    output_dir = os.path.dirname(output_path)
-    output_basename = os.path.basename(output_path).replace(".png", "")
-    try:
-        os.chdir(output_dir)
-        diagram_filename = output_basename
-    except Exception:
-        diagram_filename = output_path.replace(".png", "")
-
-    nodes = {}
-    with Diagram(
-        "Architecture",
-        filename=diagram_filename,
-        direction="LR",
-        show=False,
-        outformat="png",
-    ):
-        for logical_id, config in resources.items():
-            if not isinstance(config, dict):
-                continue
-            res_type = config.get("Type", "")
-            props = config.get("Properties") or {}
-            depends_on = config.get("DependsOn")
-            if isinstance(depends_on, str):
-                depends_on = [depends_on]
-            elif depends_on is None:
-                depends_on = []
-
-            pair = TYPE_MAP.get(res_type)
-            if pair is None:
-                node_cls, prefix = Blank, "Resource"
-            else:
-                node_cls, prefix = pair
-            label = logical_id if len(logical_id) <= 24 else logical_id[:21] + "..."
-            try:
-                node = node_cls(label)
-            except Exception:
-                node = Blank(label)
-            nodes[logical_id] = node
-
-        # Edges from DependsOn and Ref
-        for logical_id, config in resources.items():
-            if not isinstance(config, dict):
-                continue
-            src = nodes.get(logical_id)
-            if src is None:
-                continue
-            deps = list(config.get("DependsOn") or []) if isinstance(config.get("DependsOn"), list) else []
-            if isinstance(config.get("DependsOn"), str):
-                deps = [config.get("DependsOn")]
-            for ref in get_refs(config.get("Properties") or {}):
-                if ref in nodes and ref != logical_id:
-                    deps.append(ref)
-            for dep in deps:
-                if dep in nodes:
-                    try:
-                        nodes[dep] >> src
-                    except Exception:
-                        pass
-
-    try:
-        os.chdir(orig_cwd)
-    except Exception:
-        pass
-    return len(nodes)
-
-
-@mcp.tool()
-def generate_architecture_diagram(template_body: str) -> dict:
-    """
-    Generate a professional architecture diagram from a CloudFormation template
-    (Infrastructure Composer-style). Parses the template, maps AWS resources to
-    official icons, and returns a PNG image as base64.
-    """
-    import base64
-    import tempfile
-    import os
-
-    if not template_body or not template_body.strip():
-        return {"success": False, "error": "template_body is required"}
-
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
-            tmp_path = f.name
-        try:
-            count = _generate_diagram_png(template_body, tmp_path)
-            with open(tmp_path, "rb") as f:
-                image_b64 = base64.b64encode(f.read()).decode("utf-8")
-            return {
-                "success": True,
-                "image": image_b64,
-                "format": "png",
-                "encoding": "base64",
-                "resources_count": count,
-            }
-        finally:
-            if os.path.exists(tmp_path):
-                try:
-                    os.unlink(tmp_path)
-                except Exception:
-                    pass
-            dot_path = tmp_path.replace(".png", "")
-            for path in [dot_path + ".png", dot_path]:
-                if os.path.exists(path):
-                    try:
-                        os.unlink(path)
-                    except Exception:
-                        pass
-    except ValueError as e:
-        return {"success": False, "error": str(e)}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
 
 
 @mcp.tool()
@@ -658,118 +440,6 @@ def get_cfn_stack_events(stack_name: str, limit: int = 30) -> dict:
         }
     except Exception as e:
         return {'success': False, 'error': str(e), 'stack_status': None, 'events': [], 'outputs': []}
-
-
-@mcp.tool()
-def analyze_cost_optimization(prompt: str = None, template_body: str = None) -> dict:
-    """
-    Analyze cost optimization opportunities from requirements or CloudFormation template.
-    """
-    try:
-        if not prompt and not template_body:
-            return {'success': False, 'error': 'Either prompt or template_body must be provided'}
-        
-        bedrock = get_bedrock_client()
-        
-        system_prompt = """You are an AWS cost optimization expert. Analyze architectures and provide specific, actionable cost-saving recommendations that directly reference the components and findings provided.
-
-Reference specific recommendations and risks identified. Provide concrete cost estimates and savings calculations."""
-
-        if template_body:
-            user_message = f"""Analyze this CloudFormation template for cost optimization:
-
-{template_body}
-
-Provide:
-1. Cost Analysis: Estimate monthly costs for SPECIFIC resources in the template
-2. Cost Drivers: Identify the most expensive components by name
-3. Optimization Recommendations: Reference specific resources and provide alternatives
-4. Estimated Savings: Provide dollar amounts or percentages
-5. Implementation Priority: High/Medium/Low with justification
-
-Be specific - reference actual resource names and provide cost estimates."""
-        elif prompt:
-            user_message = f"""Analyze cost optimization based on this architecture review:
-
-ARCHITECTURE FINDINGS:
-{prompt}
-
-Based on the architecture and findings above, provide:
-
-1. Cost Analysis:
-   - Estimated monthly costs for the components mentioned (ALB, EC2, RDS, NAT Gateway, etc.)
-   - Break down by service
-   - Consider the specific configurations mentioned (Multi-AZ, Auto Scaling, etc.)
-
-2. Cost Drivers:
-   - Identify the 3 most expensive components
-   - Explain why they're costly in THIS specific architecture
-
-3. Optimization Recommendations:
-   - Reference the specific findings above
-   - Provide alternatives for expensive components
-   - Consider the trade-offs mentioned (reliability vs cost)
-
-4. Estimated Savings:
-   - Provide specific dollar amounts or percentages
-   - Show before/after cost comparison
-
-5. Implementation Roadmap:
-   - Quick wins (< 1 week)
-   - Medium-term optimizations (1-4 weeks)
-   - Long-term strategies (1-3 months)
-
-IMPORTANT: Reference the specific architecture components and findings. Don't provide generic cost advice."""
-
-        response = converse_with_retry(
-            bedrock, BEDROCK_MODEL_ID, system_prompt, user_message, max_tokens=4096
-        )
-        out = _extract_content_from_converse_response(response)
-        result = {'success': True, 'analysis': out["text"]}
-        if out.get("thinking"):
-            result["thinking"] = out["thinking"]
-        return result
-    except Exception as e:
-        return {'success': False, 'error': str(e)}
-
-
-@mcp.tool()
-def well_architected_review(prompt: str = None, template_body: str = None) -> dict:
-    """
-    Perform architecture review on requirements or CloudFormation template
-    (operational excellence, security, reliability, performance, cost, sustainability).
-    """
-    try:
-        if not prompt and not template_body:
-            return {'success': False, 'error': 'Either prompt or template_body must be provided'}
-        
-        bedrock = get_bedrock_client()
-        
-        system_prompt = """AWS architecture expert. Review against operational excellence, security, reliability, performance efficiency, cost optimization, and sustainability. Give specific recommendations."""
-
-        if template_body:
-            user_message = f"""Review CloudFormation template:
-
-{template_body}
-
-For each area: Assessment, Risks, Recommendations (High/Medium/Low priority)"""
-        elif prompt:
-            user_message = f"""Review architecture:
-
-{prompt}
-
-For each area: Assessment, Strengths, Risks, Recommendations (priority)"""
-
-        response = converse_with_retry(
-            bedrock, BEDROCK_MODEL_ID, system_prompt, user_message, max_tokens=1500
-        )
-        out = _extract_content_from_converse_response(response)
-        result = {'success': True, 'review': out["text"]}
-        if out.get("thinking"):
-            result["thinking"] = out["thinking"]
-        return result
-    except Exception as e:
-        return {'success': False, 'error': str(e)}
 
 
 if __name__ == "__main__":

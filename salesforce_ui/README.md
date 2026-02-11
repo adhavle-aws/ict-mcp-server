@@ -60,7 +60,7 @@ All features from the web version:
 - ✅ Cost Optimization Analysis
 - ✅ CloudFormation Template Generation
 - ✅ Template Validation
-- ✅ Example Prompts (3-Tier, Serverless, Data Pipeline, Microservices)
+- ✅ Example Prompt (Quoting Agent)
 - ✅ Tool timings (per-tool elapsed time under Generate button)
 - ✅ Thinking/reasoning in console when backend returns it
 

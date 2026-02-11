@@ -71,6 +71,7 @@ Response starts with:
   - `[E2E] generate_architecture_overview | setup: Xs` → MCP setup (client, etc.).
   - `[E2E] generate_architecture_overview | bedrock_invoke: Xs` → **Bedrock call duration (main cost).**
   - `[E2E] generate_architecture_overview | total: Xs | output_tokens~N` → total tool time and rough output size.
+  - `[build_cfn_template] WARNING: response truncated` → template hit max_tokens; tool result includes `truncated: true`.
 
 **Example:**
 
@@ -80,9 +81,32 @@ Response starts with:
 [E2E] generate_architecture_overview | total: 44.3s | output_tokens~420
 ```
 
+**Tail AgentCore logs (us-east-1, profile aws-gaurav):**
+
+```bash
+# Last 30 min, follow
+aws logs tail /aws/bedrock-agentcore/runtimes/cfn_mcp_server-4KOBaDFd4a-DEFAULT \
+  --since 30m --follow --region us-east-1 --profile aws-gaurav
+
+# Last 1 hour, filter for build_cfn_template and truncation
+aws logs filter-log-events \
+  --log-group-name /aws/bedrock-agentcore/runtimes/cfn_mcp_server-4KOBaDFd4a-DEFAULT \
+  --start-time $(($(date +%s) - 3600))000 \
+  --filter-pattern "build_cfn_template" --region us-east-1 --profile aws-gaurav
+```
+
 ---
 
-## 4. Quick checklist for “slow” or “empty” responses
+## 4. Truncation (template cut off)
+
+- If the CloudFormation template is cut off but **Validate** still passes, the UI may be showing only part of the template (e.g. character limit), or the model hit **max_tokens** and Bedrock truncated the response.
+- The MCP server now sets `truncated: true` and `truncation_reason` in the tool result when Bedrock returns `stopReason: max_tokens` (or `length`). It also logs `[build_cfn_template] WARNING: response truncated`.
+- **max_tokens** for `build_cfn_template` is 32768; increase in `mcp_server.py` if large templates still truncate.
+- Check AgentCore logs (commands above) for the WARNING line and for `output_lines=N` in the total-timing line to see how much was returned.
+
+---
+
+## 5. Quick checklist for “slow” or “empty” responses
 
 1. **Lambda logs**  
    Check `AgentCore HTTP wait` and `response_len`. If wait is ~60s and `response_len=0` → AgentCore timeout.
@@ -98,7 +122,7 @@ Response starts with:
 
 ---
 
-## 5. Summary
+## 6. Summary
 
 | Question | Answer |
 |----------|--------|

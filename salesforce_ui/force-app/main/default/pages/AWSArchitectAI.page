@@ -536,19 +536,13 @@
                     <label for="promptInput">Infrastructure Requirements</label>
                     
                     <div class="example-prompts">
-                        <span style="font-size: 0.9rem; color: #666; margin-right: 0.5rem;">Quick Examples:</span>
+                        <span style="font-size: 0.9rem; color: #666; margin-right: 0.5rem;">Quick Example:</span>
                         <button class="example-btn" onclick="useExample('quoting')">Quoting Agent</button>
-                        <button class="example-btn" onclick="useExample('3tier')">3-Tier Web App</button>
-                        <button class="example-btn" onclick="useExample('serverless')">Serverless API</button>
-                        <button class="example-btn" onclick="useExample('data')">Data Pipeline</button>
-                        <button class="example-btn" onclick="useExample('microservices')">Microservices</button>
                     </div>
                     
                     <textarea 
                         id="promptInput" 
-                        placeholder="Describe your infrastructure requirements...
-
-Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-east-1"
+                        placeholder="Describe your infrastructure requirements or use the Quoting Agent example above."
                     ></textarea>
                     <button class="aws-button aws-button-primary" onclick="generateInfrastructure()" id="sendBtn">
                         Generate
@@ -755,12 +749,9 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                 <div id="guide-testing" class="tab-content">
                     <h2>Test Integration</h2>
                     
-                    <h3>Example Prompts</h3>
+                    <h3>Example Prompt</h3>
                     <ul>
-                        <li>"Create a serverless API"</li>
-                        <li>"Design a 3-tier web application"</li>
-                        <li>"Build a data pipeline"</li>
-                        <li>"Create a secure VPC"</li>
+                        <li>Use the <strong>Quoting Agent</strong> button to load the sample conversation and generate infrastructure.</li>
                     </ul>
                     
                     <h3>Troubleshooting</h3>
@@ -1315,41 +1306,8 @@ A: We have 30GB of files and video data and 20GB of transaction data
 Q: Anything else you want us to consider?
 A: Yes, we want to have minimal operations and cost overhead. And one more thing, this app is very CPU intensive.
 
-Create the infrastructure for this application.`,
-                
-                '3tier': `Create a highly available 3-tier web application in us-east-1 with:
-- Web tier: Application Load Balancer with Auto Scaling EC2 instances
-- Application tier: EC2 instances in private subnets with Auto Scaling
-- Database tier: RDS PostgreSQL with Multi-AZ deployment
-- Network: VPC with public and private subnets across 2 AZs
-- Security: WAF, Security Groups, and NACLs
-- Monitoring: CloudWatch dashboards and alarms`,
-                
-                'serverless': `Create a serverless REST API in us-east-1 with:
-- API Gateway for HTTP endpoints
-- Lambda functions for business logic
-- DynamoDB for data storage
-- Cognito for user authentication
-- S3 for static content
-- CloudFront for global content delivery`,
-                
-                'data': `Create a data processing pipeline in us-east-1 with:
-- S3 buckets for data ingestion and storage
-- Lambda functions for data transformation
-- Kinesis Data Streams for real-time processing
-- Glue for ETL jobs
-- Athena for data querying
-- Step Functions for workflow orchestration`,
-                
-                'microservices': `Create a microservices architecture in us-east-1 with:
-- ECS Fargate for containerized services
-- Application Load Balancer for routing
-- API Gateway for external access
-- DynamoDB and RDS for data persistence
-- ElastiCache for caching
-- SQS and SNS for async communication`
+Create the infrastructure for this application.`
             };
-            
             document.getElementById('promptInput').value = examples[type];
         }
     </script>

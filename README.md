@@ -74,10 +74,7 @@ AI-powered infrastructure design platform that transforms natural language into 
 │  • build_cfn_template             – CloudFormation YAML/JSON     │
 │    (no extended thinking for speed; validate + auto_fix as needed)│
 │  • validate_cfn_template          – Validate + optional auto-fix │
-│  • estimate_infrastructure_cost   – Cost analysis (with CoT)     │
-│  • well_architected_review        – 6-pillar review (with CoT)   │
 │  • provision_cfn_stack / delete_cfn_stack / get_cfn_stack_events │
-│  • generate_architecture_diagram  – PNG with AWS icons (GraphViz) │
 └────────────────────────┬────────────────────────────────────────┘
                          │
                          │ boto3 SDK
@@ -186,10 +183,7 @@ All tools are live and functional:
 1. ✅ `generate_architecture_overview` - Fast architecture overview (no extended thinking)
 2. ✅ `build_cfn_template` - Generate CloudFormation from natural language (optimized for speed)
 3. ✅ `validate_cfn_template` - Validate templates via AWS API (with optional auto-fix)
-4. ✅ `estimate_infrastructure_cost` - AI-powered cost analysis
-5. ✅ `well_architected_review` - Well-Architected Framework review
-6. ✅ `provision_cfn_stack` / `delete_cfn_stack` / `get_cfn_stack_events` - Stack lifecycle
-7. ✅ `generate_architecture_diagram` - Professional PNG diagrams (GraphViz)
+4. ✅ `provision_cfn_stack` / `delete_cfn_stack` / `get_cfn_stack_events` - Stack lifecycle
 
 ## Usage
 
@@ -267,17 +261,6 @@ agentcore invoke '{
 User Prompt
     ↓
 build_cfn_template() → CloudFormation Template
-    ↓
-generate_architecture_diagram(template)
-    ↓
-1. Parse CloudFormation (YAML/JSON)
-2. Extract AWS resources
-3. Generate Python diagrams code
-4. Execute with GraphViz
-5. Create PNG with official AWS icons
-6. Base64 encode for web display
-    ↓
-Professional Architecture Diagram
 ```
 
 ### Supported AWS Services (20+)

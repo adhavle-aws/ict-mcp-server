@@ -30,12 +30,9 @@ Disabled the cost optimization tool and removed the Cost Optimization tab from t
 - Keywords removed: 'cost', 'price', 'expensive'
 - No longer routes to `analyze_cost_optimization` tool
 
-### 3. MCP Server (No Changes Required)
+### 3. MCP Server (Later Removal)
 
-The `analyze_cost_optimization` tool remains in `mcp_server.py` but is no longer called by the UI. This allows for:
-- Easy re-enabling if needed
-- Other clients (CLI, Kiro) can still use it
-- No deployment required for MCP server
+The `analyze_cost_optimization` tool was later removed from `mcp_server.py` entirely (along with `test_delay`, `generate_architecture_diagram`, and `well_architected_review`) to simplify the server to only the tools used by the UI.
 
 ## Impact
 

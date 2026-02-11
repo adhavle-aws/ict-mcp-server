@@ -162,10 +162,6 @@ All tools are defined in **`mcp_server.py`** with `@mcp.tool()`. The following t
 | `provision_cfn_stack` | Create or update stack (template, params, capabilities). Tags new stacks with `stack-creator=aws-architect-mcp`. | **Deploy** flow after validation. |
 | `get_cfn_stack_events` | Describe stack status, recent events, and outputs. | **Deploy** (initial status + polling until complete); **Check status**; **Delete stack** (poll until stack gone). |
 | `delete_cfn_stack` | Start stack deletion. | **Delete stack** button. |
-| `generate_architecture_diagram` | Generate diagram from template (e.g. PNG). | Available for diagram generation from template (if wired in UI). |
-| `analyze_cost_optimization` | Cost analysis from prompt or template. | Available for cost analysis (if wired in UI). |
-| `well_architected_review` | Well-Architected review from prompt or template. | Available for WAF review (if wired in UI). |
-| `test_delay` | Test long-running behavior (e.g. 80s delay). | For testing timeout/async behavior only. |
 
 **Flow summary:**
 

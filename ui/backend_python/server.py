@@ -29,7 +29,7 @@ app.add_middleware(
 
 # Configuration (use aws-gaurav profile for deployments)
 AWS_PROFILE = os.environ.get("AWS_PROFILE", "aws-gaurav")
-AGENT_ARN = "arn:aws:bedrock-agentcore:us-east-1:905767016260:runtime/mcp_server-CxkrO53RPH"
+AGENT_ARN = "arn:aws:bedrock-agentcore:us-east-1:611291728384:runtime/cfn_mcp_server-4KOBaDFd4a"
 REGION = "us-east-1"
 
 def get_mcp_url():

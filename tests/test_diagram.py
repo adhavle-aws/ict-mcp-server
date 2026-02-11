@@ -53,31 +53,7 @@ async def test_diagram():
                 print("❌ Failed to generate template")
                 return
             
-            # Test diagram generation
-            print("\n📊 Generating architecture diagram...")
-            diagram_result = await session.call_tool(
-                "generate_architecture_diagram",
-                {"template_body": template}
-            )
-            
-            for content in diagram_result.content:
-                if content.type == "text":
-                    import json
-                    data = json.loads(content.text)
-                    if data.get('success'):
-                        print("✅ Diagram generated!")
-                        print(f"   Format: {data.get('format')}")
-                        print(f"   Encoding: {data.get('encoding')}")
-                        print(f"   Resources: {data.get('resources_count')}")
-                        print(f"   Image size: {len(data.get('image', ''))} bytes (base64)")
-                        
-                        # Save to file for inspection
-                        import base64
-                        with open('test_diagram.png', 'wb') as f:
-                            f.write(base64.b64decode(data['image']))
-                        print("   💾 Saved to: test_diagram.png")
-                    else:
-                        print(f"❌ Diagram generation failed: {data.get('error')}")
+            print("\n✅ Test complete (template generation only; diagram tool removed).")
 
 if __name__ == "__main__":
     asyncio.run(test_diagram())

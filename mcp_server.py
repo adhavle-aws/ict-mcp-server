@@ -1,5 +1,6 @@
 # mcp_server.py
 from mcp.server.fastmcp import FastMCP
+from typing import Optional
 import boto3
 import yaml
 import json
@@ -709,6 +710,127 @@ Do NOT include cost, pricing, or monthly estimates. Do NOT include a "Key Design
         return {'success': False, 'error': str(e)}
 
 
+def _is_three_tier_request(prompt: str) -> bool:
+    """Return True if the prompt indicates a 3-tier application."""
+    if not prompt or not isinstance(prompt, str):
+        return False
+    lower = prompt.strip().lower()
+    return any(
+        phrase in lower
+        for phrase in ("3-tier", "three tier", "three-tier", "3 tier", "three tier app", "3-tier app")
+    )
+
+
+def _load_three_tier_template(format: str) -> str:
+    """Load the canned 3-tier template from templates/three_tier.yaml; return as YAML or JSON string."""
+    template_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
+    path = os.path.join(template_dir, "three_tier.yaml")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            yaml_str = f.read()
+    except Exception as e:
+        print(f"[build_cfn_template] Failed to load 3-tier template: {e}")
+        return ""
+    if (format or "yaml").lower() == "json":
+        try:
+            data = yaml.safe_load(yaml_str)
+            return json.dumps(data, indent=2)
+        except Exception as e:
+            print(f"[build_cfn_template] Failed to convert 3-tier template to JSON: {e}")
+            return yaml_str
+    return yaml_str
+
+
+def _is_microservices_request(prompt: str) -> bool:
+    """Return True if the prompt indicates a microservices architecture."""
+    if not prompt or not isinstance(prompt, str):
+        return False
+    lower = prompt.strip().lower()
+    return any(
+        phrase in lower
+        for phrase in (
+            "microservices",
+            "micro services",
+            "micro-service",
+            "micro service",
+            "microservices architecture",
+            "microservices platform",
+        )
+    )
+
+
+def _is_serverless_rest_request(prompt: str) -> bool:
+    """Return True if the prompt indicates a serverless REST API architecture."""
+    if not prompt or not isinstance(prompt, str):
+        return False
+    lower = prompt.strip().lower()
+    return any(
+        phrase in lower
+        for phrase in (
+            "serverless rest api",
+            "serverless rest",
+            "serverless api",
+            "serverless architecture",
+            "serverless rest api architecture",
+        )
+    )
+
+
+def _is_data_pipeline_request(prompt: str) -> bool:
+    """Return True if the prompt indicates a data processing pipeline architecture."""
+    if not prompt or not isinstance(prompt, str):
+        return False
+    lower = prompt.strip().lower()
+    return any(
+        phrase in lower
+        for phrase in (
+            "data processing pipeline",
+            "data pipeline",
+            "data pipeline architecture",
+            "etl",
+            "kinesis",
+            "step functions",
+            "glue",
+            "athena",
+        )
+    )
+
+
+def _load_canned_template(filename: str, format: str) -> str:
+    """Load a canned template from templates/<filename>; return as YAML or JSON string."""
+    template_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
+    path = os.path.join(template_dir, filename)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            yaml_str = f.read()
+    except Exception as e:
+        print(f"[build_cfn_template] Failed to load {filename}: {e}")
+        return ""
+    if (format or "yaml").lower() == "json":
+        try:
+            data = yaml.safe_load(yaml_str)
+            return json.dumps(data, indent=2)
+        except Exception as e:
+            print(f"[build_cfn_template] Failed to convert {filename} to JSON: {e}")
+            return yaml_str
+    return yaml_str
+
+
+# Internal: preset names (not exposed in API). UI sends a hidden directive in the prompt.
+TEMPLATE_PRESETS = ("three_tier", "microservices", "serverless_rest_api", "data_pipeline")
+_PRESET_PATTERN = re.compile(r"\n\n\[PRESET:(" + "|".join(re.escape(p) for p in TEMPLATE_PRESETS) + r)\]\s*$", re.IGNORECASE)
+
+
+def _extract_preset_from_prompt(prompt: str) -> "tuple[str, Optional[str]]":
+    """If prompt ends with [PRESET:name], return (prompt_with_directive_stripped, name); else (prompt, None)."""
+    m = _PRESET_PATTERN.search(prompt)
+    if m:
+        preset = m.group(1).lower()
+        if preset in TEMPLATE_PRESETS:
+            return (prompt[: m.start()].rstrip(), preset)
+    return (prompt, None)
+
+
 @mcp.tool()
 def build_cfn_template(prompt: str, format: str = "yaml") -> dict:
     """
@@ -723,6 +845,69 @@ def build_cfn_template(prompt: str, format: str = "yaml") -> dict:
     """
     t0 = time.time()
     try:
+        prompt_clean, preset = _extract_preset_from_prompt(prompt)
+        # When UI sent a hidden directive, use that selection (not exposed to users)
+        if preset:
+            if preset == "three_tier":
+                template_str = _load_three_tier_template(format)
+            else:
+                template_str = _load_canned_template(
+                    {"microservices": "microservices.yaml", "serverless_rest_api": "serverless_rest_api.yaml", "data_pipeline": "data_pipeline.yaml"}[preset],
+                    format,
+                )
+            if template_str:
+                _log_timing("total", "build_cfn_template", t0, extra="source=preset")
+                return {
+                    "success": True,
+                    "template": template_str,
+                    "format": format or "yaml",
+                    "prompt": prompt_clean,
+                }
+            # fall through if load failed
+        if _is_three_tier_request(prompt_clean):
+            template_str = _load_three_tier_template(format)
+            if template_str:
+                _log_timing("total", "build_cfn_template", t0, extra="source=preset")
+                return {
+                    "success": True,
+                    "template": template_str,
+                    "format": format or "yaml",
+                    "prompt": prompt_clean,
+                }
+            # fall through to Bedrock if load failed
+        if _is_microservices_request(prompt_clean):
+            template_str = _load_canned_template("microservices.yaml", format)
+            if template_str:
+                _log_timing("total", "build_cfn_template", t0, extra="source=preset")
+                return {
+                    "success": True,
+                    "template": template_str,
+                    "format": format or "yaml",
+                    "prompt": prompt_clean,
+                }
+            # fall through to Bedrock if load failed
+        if _is_serverless_rest_request(prompt_clean):
+            template_str = _load_canned_template("serverless_rest_api.yaml", format)
+            if template_str:
+                _log_timing("total", "build_cfn_template", t0, extra="source=preset")
+                return {
+                    "success": True,
+                    "template": template_str,
+                    "format": format or "yaml",
+                    "prompt": prompt_clean,
+                }
+            # fall through to Bedrock if load failed
+        if _is_data_pipeline_request(prompt_clean):
+            template_str = _load_canned_template("data_pipeline.yaml", format)
+            if template_str:
+                _log_timing("total", "build_cfn_template", t0, extra="source=preset")
+                return {
+                    "success": True,
+                    "template": template_str,
+                    "format": format or "yaml",
+                    "prompt": prompt_clean,
+                }
+            # fall through to Bedrock if load failed
         bedrock = get_bedrock_client()
         print("[build_cfn_template] enable_thinking=False (speed-optimized)")
         # Bare-minimum CFN builder: provision successfully every time. Default VPC only. No CloudFront, no Cognito.
@@ -732,6 +917,7 @@ Goal: create and provision successfully — avoid bells and whistles. Use the ac
 DO NOT INCLUDE (never add these):
 - CloudFront (AWS::CloudFront::*) — not deployed by provisioner; causes confusion.
 - Cognito (AWS::Cognito::*) — no user pools, no UserPoolClient.
+- Auto Scaling Group (AWS::AutoScaling::AutoScalingGroup) — never create ASG. Use a single EC2 instance (or fixed number of instances) behind the ALB instead.
 - Any VPC/Subnet/IGW/NAT/Route resources — never create AWS::EC2::VPC, Subnet, InternetGateway, NATGateway, EIP, RouteTable, Route, SubnetRouteTableAssociation. Use ONLY Parameters: VpcId, PublicSubnetIds, PrivateSubnetIds. Provisioner auto-fills from account default VPC.
 - LaunchConfiguration — use LaunchTemplate only.
 - ASG CreationPolicy that requires SUCCESS signals — omit it so stack completes without cfn-signal.
@@ -741,11 +927,11 @@ DO NOT INCLUDE (never add these):
 REQUIRED PARAMETERS (provisioner fills from default VPC if omitted):
   VpcId: Type: AWS::EC2::VPC::Id, Description: Existing VPC (default VPC)
   PublicSubnetIds: Type: List<AWS::EC2::Subnet::Id>, Description: At least 2 subnets for ALB
-  PrivateSubnetIds: Type: List<AWS::EC2::Subnet::Id>, Description: At least 2 subnets for ASG/RDS
+  PrivateSubnetIds: Type: List<AWS::EC2::Subnet::Id>, Description: At least 2 subnets for app instance and RDS
 Every other parameter MUST have a Default so the stack deploys with zero manual input.
 
 VPC/NETWORKING:
-- All SecurityGroups: VpcId: !Ref VpcId. ALB: Subnets: !Ref PublicSubnetIds. ASG: VPCZoneIdentifier: !Ref PrivateSubnetIds. RDS DBSubnetGroup: SubnetIds: !Ref PrivateSubnetIds.
+- All SecurityGroups: VpcId: !Ref VpcId. ALB: Subnets: !Ref PublicSubnetIds. App EC2 instance: SubnetId from !Ref PrivateSubnetIds (use one subnet). RDS DBSubnetGroup: SubnetIds: !Ref PrivateSubnetIds.
 - Security groups: include ingress and egress; never use empty SecurityGroupIngress/SecurityGroupEgress arrays (omit property if no rules).
 
 RDS (if database needed):
@@ -756,11 +942,11 @@ RDS (if database needed):
 - DBSubnetGroup with SubnetIds: !Ref PrivateSubnetIds. AllocatedStorage >= 20. StorageType: gp3. Do NOT set Iops/StorageThroughput when AllocatedStorage < 400.
 - MasterUsername: dbadmin (never admin). PubliclyAccessible: false.
 
-ALB / TARGET GROUP / ASG:
+ALB / TARGET GROUP / EC2 (no ASG):
 - ALB and Target Group: omit Name or use short literal (max 32 chars). Never !Sub with AWS::StackName for these.
 - Target Group: VpcId: !Ref VpcId, HealthCheckPath: /, HealthCheckProtocol: HTTP.
-- ASG: TargetGroupARNs (not LoadBalancerNames). Use LaunchTemplate (not LaunchConfiguration).
-- EC2 Instance: Tags (list of Key/Value), not TagSpecifications. LaunchTemplate: TagSpecifications at resource level use ResourceType: "launch-template" only.
+- Use a single AWS::EC2::Instance (or fixed count) behind the ALB. Register the instance with the target group using AWS::ElasticLoadBalancingV2::TargetGroupTargetAttachment (TargetGroupArn, TargetId: !Ref AppInstance). Add AWS::ElasticLoadBalancingV2::Listener (DefaultActions: Forward to target group) so ALB forwards to the instance.
+- EC2 Instance: Tags (list of Key/Value), not TagSpecifications. Use LaunchTemplate (not LaunchConfiguration) for the instance; LaunchTemplate TagSpecifications at resource level use ResourceType: "launch-template" only.
 
 LAMBDA (if needed):
 - Inline ZipFile only; no S3 code. Runtime: python3.12 or nodejs20.x. Include execution role with logs permissions. Omit FunctionName or use short literal (max 64 chars).
@@ -774,12 +960,12 @@ API GATEWAY (if needed):
 LOGS:
 - AWS::Logs::LogGroup: LogGroupName must be !Sub '/app/${AWS::StackName}' (unique per stack).
 
-OUTPUT: Return ONLY valid YAML. No markdown fences. Every Ref/GetAtt must reference a resource in the template. All parameters must have Default except VpcId/PublicSubnetIds/PrivateSubnetIds (provisioner fills those from default VPC).
+OUTPUT: Return ONLY valid YAML. No markdown fences. Every Ref/GetAtt must reference a resource in the template. All parameters must have Default except VpcId/PublicSubnetIds/PrivateSubnetIds (provisioner fills those from default VPC). Keep the generated template as small as possible while still correct (reduces latency).
 
 MINIMAL EXAMPLE (stay close to this pattern — default VPC params, Secrets Manager for RDS, no VPC resources in Resources):
 ---
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Three-tier app with ALB, ASG, RDS — uses existing VPC
+Description: Three-tier app with ALB, single EC2 instance, RDS — uses existing VPC (no ASG)
 Parameters:
   Environment:
     Type: String
@@ -930,20 +1116,22 @@ Outputs:
     Value: !GetAtt AppDB.Endpoint.Address
 ---
 """
-        # Inject official schema hints for key resource types so the model uses exact property names (reduces deploy failures)
-        try:
-            schema_parts = [_schema_summary_for_builder(rt) for rt in _KEY_SCHEMA_TYPES_FOR_BUILDER]
-            if schema_parts:
-                system_prompt += "\n\nOFFICIAL SCHEMA HINTS (use exact property names and required fields where applicable):\n" + "\n".join(schema_parts)
-        except Exception:
-            pass
-        user_message = f"""Generate a CloudFormation template for: {prompt}
+        # Inject official schema hints for key resource types (reduces deploy failures). Skip if BUILD_CFN_FAST=true to save ~2-4s and stay under AgentCore 60s tool timeout.
+        if os.environ.get("BUILD_CFN_FAST", "").lower() not in ("true", "1", "yes"):
+            try:
+                schema_parts = [_schema_summary_for_builder(rt) for rt in _KEY_SCHEMA_TYPES_FOR_BUILDER]
+                if schema_parts:
+                    system_prompt += "\n\nOFFICIAL SCHEMA HINTS (use exact property names and required fields where applicable):\n" + "\n".join(schema_parts)
+            except Exception:
+                pass
+        user_message = f"""Generate a CloudFormation template for: {prompt_clean}
 
-Format: {format.upper()}. Verify every Ref and GetAtt points to a defined resource. Return ONLY the template."""
+Format: {format.upper()}. Verify every Ref and GetAtt points to a defined resource. Return ONLY the template. Keep it minimal."""
         t_bedrock = time.time()
-        # CRITICAL: enable_thinking=False for speed. With thinking this tool takes 60-70s; without, ~15-35s.
+        # CRITICAL: enable_thinking=False for speed. AgentCore enforces ~60s MCP tool timeout; keep under by using
+        # BEDROCK_MODEL_ID_CFN_BUILDER (default Haiku), max_tokens 16384, and minimal output.
         response = converse_with_retry(
-            bedrock, BEDROCK_MODEL_ID, system_prompt, user_message, max_tokens=25000, enable_thinking=False,
+            bedrock, BEDROCK_MODEL_ID_CFN_BUILDER, system_prompt, user_message, max_tokens=16384, enable_thinking=False,
             system_cache_ttl="1h"
         )
         _log_timing("bedrock_invoke", "build_cfn_template", t_bedrock)
@@ -957,7 +1145,7 @@ Format: {format.upper()}. Verify every Ref and GetAtt points to a defined resour
             'success': True,
             'template': template_str,
             'format': format,
-            'prompt': prompt
+            'prompt': prompt_clean
         }
         if out.get("thinking"):
             result["thinking"] = out["thinking"]
@@ -965,6 +1153,18 @@ Format: {format.upper()}. Verify every Ref and GetAtt points to a defined resour
     except Exception as e:
         _log_timing("total", "build_cfn_template", t0)
         return {'success': False, 'error': str(e)}
+
+
+def _normalize_template_for_validation(template_body) -> str:
+    """Ensure template is a string, strip, and replace tabs (CloudFormation rejects tabs in YAML)."""
+    if template_body is None:
+        return ""
+    if isinstance(template_body, dict):
+        return json.dumps(template_body, indent=2)
+    s = str(template_body).strip()
+    if "\t" in s:
+        s = s.replace("\t", "  ")
+    return s
 
 
 @mcp.tool()
@@ -979,6 +1179,21 @@ def validate_cfn_template(template_body: str, auto_fix: bool = True) -> dict:
     Returns:
         dict with validation results and fixed template if auto_fix is enabled
     """
+    template_body = _normalize_template_for_validation(template_body)
+    if not template_body:
+        return {
+            "success": False,
+            "valid": False,
+            "error": "Template body is empty. Generate a template in Onboarding Agent first.",
+            "violations": [{
+                "rule_id": "TemplateValidation",
+                "severity": "ERROR",
+                "resource": "",
+                "resource_type": "",
+                "message": "Template body is empty.",
+                "remediation": "Generate infrastructure in Onboarding Agent, then validate the template.",
+            }],
+        }
     cfn = get_cfn_client()
     
     try:

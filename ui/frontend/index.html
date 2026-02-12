@@ -801,6 +801,8 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
     <script>
         const WS_URL = 'wss://9h32jjkhg3.execute-api.us-east-1.amazonaws.com/prod';
         let currentTemplate = '';
+        // When user clicks a Quick Example button, we pass this so the server returns that canned template (deterministic).
+        let currentTemplatePreset = null;
         let ws = null;
         let requestCallbacks = new Map();
         let editor = null;
@@ -999,10 +1001,8 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                 // Step 2: CloudFormation Template
                 document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 2/2: Generating template...</div>';
                 
-                const templateResult = await callMcpTool('build_cfn_template', { 
-                    prompt, 
-                    format: 'yaml' 
-                });
+                const promptForRequest = currentTemplatePreset ? prompt + '\n\n[PRESET:' + currentTemplatePreset + ']' : prompt;
+                const templateResult = await callMcpTool('build_cfn_template', { prompt: promptForRequest, format: 'yaml' });
                 if (!templateResult.success) throw new Error(templateResult.error);
                 if (!templateResult.template) throw new Error(templateResult.error || 'No template');
                 currentTemplate = templateResult.template;
@@ -1334,8 +1334,11 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
             }
         }
         
+        // Map Quick Example button -> canned template preset (deterministic selection).
+        const TEMPLATE_PRESET_BY_EXAMPLE = { quoting: 'three_tier', serverless: 'serverless_rest_api', data: 'data_pipeline', microservices: 'microservices' };
         // Use Example Prompt
         function useExample(type) {
+            currentTemplatePreset = TEMPLATE_PRESET_BY_EXAMPLE[type] || null;
             const examples = {
                 'quoting': `Based on Quoting Agent conversation:
 

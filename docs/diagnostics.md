@@ -33,7 +33,7 @@ So end-to-end for “Generate Infrastructure” (overview + template) you see ro
 So in practice:
 
 - **E2E latency** ≈ time for one or two Bedrock calls (overview + template).
-- **Failures** when a single tool runs &gt;60s → need AgentCore async/long-running pattern or faster/smaller model to stay under 60s.
+- **Failures** when a single tool runs &gt;60s → need AgentCore async/long-running pattern or faster/smaller model to stay under 60s. `build_cfn_template` is tuned to stay under 60s (Haiku, no thinking, max_tokens=16384, optional `BUILD_CFN_FAST=true` to skip schema hints).
 
 ---
 

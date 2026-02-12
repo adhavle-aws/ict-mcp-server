@@ -147,6 +147,7 @@ Reference: `deploy/TIMEOUT_FIX.md` (Fix 1 = async Lambda; Fix 2 = bypass API Gat
 - **Cause:** Bedrock AgentCore Runtime enforces an **~60-second timeout** on MCP tool invocations. If a tool runs longer (e.g. `generate_architecture_overview` or `build_cfn_template` calling Bedrock for ~68s), the runtime closes the request and returns no body, so the Lambda sees `response_data` empty and returns this error.
 - **Logs:** In Lambda: `Response data length: 0`, `Response starts with:` (empty). In AgentCore runtime logs: `CallToolRequest` followed later by process/server restart messages.
 - **Fix:** For tools that can exceed ~60s, use the [AgentCore long-running / async pattern](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-long-run.html) (e.g. start work in background, return quickly, complete asynchronously). Do not block the MCP handler until Bedrock returns.
+- **Reducing latency so `build_cfn_template` stays under 60s:** The tool uses `enable_thinking=False`, `BEDROCK_MODEL_ID_CFN_BUILDER` (default Haiku), `max_tokens=16384`, and prompt instructions to keep the template minimal. Optional env: `BUILD_CFN_FAST=true` skips CloudFormation schema hints (~2–4s saved); `BEDROCK_LATENCY_OPTIMIZED=true` enables Bedrock latency-optimized inference when supported. Set these in the AgentCore runtime environment if needed.
 
 ---
 

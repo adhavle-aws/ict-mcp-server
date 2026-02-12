@@ -567,15 +567,13 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                         <input type="text" id="stackNameInput" placeholder="AgenticArchitect-12345678" style="width: 100%; padding: 0.5rem; border: 1px solid var(--aws-border); border-radius: 4px; font-size: 1rem;" />
                     </div>
                     <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-shrink: 0; flex-wrap: wrap; align-items: center;">
-                        <button class="aws-button aws-button-primary" onclick="provisionStack()" id="provisionBtn">Provision</button>
-                        <button class="aws-button aws-button-secondary" onclick="deleteStack()" id="deleteStackBtn">Delete stack</button>
                         <button class="aws-button aws-button-secondary" onclick="openInInfrastructureComposer()" id="openInComposerBtn" title="Download template and open AWS Infrastructure Composer">Open in Infrastructure Composer</button>
                     </div>
                     <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 200px;">
-                        <label style="flex-shrink: 0;">CloudFormation progress</label>
-                        <pre id="stackProgress" style="flex: 1; overflow: auto; background: #232f3e; color: #eaeded; padding: 1rem; border-radius: 4px; font-size: 0.85rem; margin: 0; white-space: pre-wrap; word-break: break-all;">No deployment in progress. Default stack name: AgenticArchitect-{timestamp}. Click Provision to deploy.</pre>
+                        <label style="flex-shrink: 0;">Status</label>
+                        <pre id="stackProgress" style="flex: 1; overflow: auto; background: #232f3e; color: #eaeded; padding: 1rem; border-radius: 4px; font-size: 0.85rem; margin: 0; white-space: pre-wrap; word-break: break-all;">The Deployment Agent is provisioning your infrastructure. Once provisioning is complete, you will receive an email with all the details to connect to your new infrastructure.</pre>
                         <div id="stackOutputsSection" style="display: none; flex-shrink: 0; margin-top: 1rem; padding: 1rem; background: #f4f5f7; border-radius: 6px; border: 1px solid #dfe1e5;">
-                            <h3 style="margin: 0 0 0.75rem 0; font-size: 1rem;">Stack outputs</h3>
+                            <h3 style="margin: 0 0 0.75rem 0; font-size: 1rem;">Outputs</h3>
                             <div id="stackOutputsContent"></div>
                         </div>
                     </div>
@@ -812,6 +810,7 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
     <script>
         const WS_URL = 'wss://9h32jjkhg3.execute-api.us-east-1.amazonaws.com/prod';
         let currentTemplate = '';
+        let currentTemplatePreset = null;
         let ws = null;
         let requestCallbacks = new Map();
         let editor = null;
@@ -1018,10 +1017,8 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                 // Step 2: CloudFormation Template
                 document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 2/2: Generating template...</div>';
                 
-                const templateResult = await callMcpTool('build_cfn_template', { 
-                    prompt, 
-                    format: 'yaml' 
-                });
+                const promptForRequest = currentTemplatePreset ? prompt + '\n\n[PRESET:' + currentTemplatePreset + ']' : prompt;
+                const templateResult = await callMcpTool('build_cfn_template', { prompt: promptForRequest, format: 'yaml' });
                 if (!templateResult.success) throw new Error(templateResult.error);
                 if (!templateResult.template) throw new Error(templateResult.error || 'No template');
                 currentTemplate = templateResult.template;
@@ -1096,6 +1093,7 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                             </div>
                         `;
                     }
+                    if (result.template) { currentTemplate = result.template; }
                     validateBtn.textContent = '✅ Validated';
                     validateBtn.style.background = '#037f0c';
                     templateValidatedSuccessfully = true;
@@ -1130,6 +1128,9 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
 
         // Open current template in AWS Infrastructure Composer (download + open console; Composer only supports file import)
         const COMPOSER_CONSOLE_URL = 'https://us-east-1.console.aws.amazon.com/composer/canvas?region=us-east-1';
+        // After provision starts we show this in the same <pre id="stackProgress"> (no CFN event polling).
+        const PROVISIONING_STARTED_MESSAGE = 'The Deployment Agent is provisioning your infrastructure. Once provisioning is complete, you will receive an email with all the details to connect to your new infrastructure.';
+        const PROVISIONING_DEFAULT_MESSAGE = 'Validate a template in Onboarding Agent to deploy. Provisioning will start automatically when validation succeeds.';
         function openInInfrastructureComposer() {
             const template = (editor ? editor.getValue() : currentTemplate) || '';
             if (!template.trim()) {
@@ -1167,21 +1168,21 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                 alert('Enter a stack name or generate a template first');
                 return;
             }
-            const template = editor ? editor.getValue() : currentTemplate;
+            const template = (templateValidatedSuccessfully && currentTemplate) ? currentTemplate : (editor ? editor.getValue() : currentTemplate);
             if (!template || !template.trim()) {
                 alert('Generate and validate a template in Onboarding Agent first.');
                 return;
             }
             const provisionBtn = document.getElementById('provisionBtn');
             const progressEl = document.getElementById('stackProgress');
-            provisionBtn.disabled = true;
-            progressEl.textContent = 'Validating template...\n';
+            if (provisionBtn) provisionBtn.disabled = true;
             document.getElementById('stackOutputsSection').style.display = 'none';
+            progressEl.textContent = PROVISIONING_STARTED_MESSAGE;
             try {
                 const validResult = await callMcpTool('validate_cfn_template', { template_body: template, auto_fix: false });
                 if (!validResult.success || !validResult.valid) {
-                    progressEl.textContent += `Validation failed: ${validResult.error || 'Invalid template'}\n`;
-                    provisionBtn.disabled = false;
+                    progressEl.textContent = PROVISIONING_DEFAULT_MESSAGE;
+                    if (provisionBtn) provisionBtn.disabled = false;
                     return;
                 }
                 const templateParams = validResult.parameters || [];
@@ -1200,26 +1201,25 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                     }
                 }
                 const parameters = Object.entries(userParams).map(([k, v]) => ({ ParameterKey: k, ParameterValue: String(v) }));
-                progressEl.textContent += `Creating/updating stack "${stackName}"...\n`;
                 const provPayload = { stack_name: stackName, template_body: template, capabilities: capabilities };
                 if (parameters.length) provPayload.parameters = parameters;
                 const provResult = await callMcpTool('provision_cfn_stack', provPayload);
                 if (!provResult.success) {
-                    progressEl.textContent += `Error: ${provResult.error}\n`;
-                    provisionBtn.disabled = false;
+                    progressEl.textContent = PROVISIONING_DEFAULT_MESSAGE;
+                    if (provisionBtn) provisionBtn.disabled = false;
                     return;
                 }
                 if (provResult.stack_name) {
                     stackName = provResult.stack_name;
                     document.getElementById('stackNameInput').value = stackName;
                 }
-                progressEl.textContent += `Stack ${provResult.action}. StackId: ${provResult.stack_id}\n\nPolling CloudFormation events...\n\n`;
+                progressEl.textContent = PROVISIONING_STARTED_MESSAGE;
                 if (stackProgressInterval) clearInterval(stackProgressInterval);
-                stackProgressInterval = setInterval(() => pollStackProgress(stackName, progressEl, provisionBtn), 3000);
-                pollStackProgress(stackName, progressEl, provisionBtn);
+                stackProgressInterval = null;
+                if (provisionBtn) provisionBtn.disabled = false;
             } catch (err) {
-                progressEl.textContent += `Error: ${err.message}\n`;
-                provisionBtn.disabled = false;
+                progressEl.textContent = PROVISIONING_DEFAULT_MESSAGE;
+                if (provisionBtn) provisionBtn.disabled = false;
             }
         }
 
@@ -1278,7 +1278,7 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                 if (status && terminal.includes(status)) {
                     if (stackProgressInterval) clearInterval(stackProgressInterval);
                     stackProgressInterval = null;
-                    provisionBtn.disabled = false;
+                    if (provisionBtn) provisionBtn.disabled = false;
                     if (status === 'CREATE_COMPLETE' || status === 'UPDATE_COMPLETE') {
                         const sendBtn = document.getElementById('sendBtn');
                         if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'Generate'; }
@@ -1333,8 +1333,9 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
             }
         }
         
-        // Use Example Prompt (Salesforce: quoting agent only)
+        // Quoting Agent button -> three_tier canned template (deterministic).
         function useExample(type) {
+            currentTemplatePreset = (type === 'quoting') ? 'three_tier' : null;
             const examples = {
                 'quoting': `Based on Quoting Agent conversation:
 

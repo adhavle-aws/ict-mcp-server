@@ -569,6 +569,7 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                         <button class="aws-button aws-button-primary" onclick="provisionStack()" id="provisionBtn">Provision</button>
                         <button class="aws-button aws-button-secondary" onclick="deleteStack()" id="deleteStackBtn">Delete stack</button>
                         <button class="aws-button aws-button-secondary" onclick="openInInfrastructureComposer()" id="openInComposerBtn" title="Download template and open AWS Infrastructure Composer">Open in Infrastructure Composer</button>
+                        <button class="aws-button aws-button-secondary" onclick="verifyMcpServer()" title="Call get_mcp_server_info to confirm which MCP server is connected">Verify MCP server</button>
                     </div>
                     <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 200px;">
                         <label style="flex-shrink: 0;">CloudFormation progress</label>
@@ -1057,9 +1058,11 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                 
                 if (result.success && result.valid) {
                     lastValidationCapabilities = result.capabilities || [];
-                    if (result.fixed) {
+                    if (result.template && result.template.trim()) {
                         editor.setValue(result.template);
                         currentTemplate = result.template;
+                    }
+                    if (result.fixed) {
                         resultDiv.innerHTML = `
                             <div class="success-banner">
                                 <h3>✅ Template Auto-Fixed and Validated!</h3>
@@ -1144,8 +1147,8 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                 alert('Enter a stack name or generate a template first');
                 return;
             }
-            const template = editor ? editor.getValue() : currentTemplate;
-            if (!template || !template.trim()) {
+            const templateFromEditor = editor ? editor.getValue() : currentTemplate;
+            if (!templateFromEditor || !templateFromEditor.trim()) {
                 alert('Generate and validate a template in Design Agent first.');
                 return;
             }
@@ -1155,12 +1158,17 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
             progressEl.textContent = 'Validating template...\n';
             document.getElementById('stackOutputsSection').style.display = 'none';
             try {
-                const validResult = await callMcpTool('validate_cfn_template', { template_body: template, auto_fix: false });
+                const validResult = await callMcpTool('validate_cfn_template', { template_body: templateFromEditor, auto_fix: false });
                 if (!validResult.success || !validResult.valid) {
                     progressEl.textContent += `Validation failed: ${validResult.error || 'Invalid template'}\n`;
                     provisionBtn.disabled = false;
                     return;
                 }
+                // Use the exact template that passed validation (or server-fixed version) so we never send a different/fallback template
+                const templateToProvision = validResult.template && validResult.template.trim() ? validResult.template : templateFromEditor;
+                if (editor) editor.setValue(templateToProvision);
+                currentTemplate = templateToProvision;
+
                 const templateParams = validResult.parameters || [];
                 const isPasswordLike = (p) => p.no_echo || /password|secret|token|key$/i.test((p.parameter_key || '').replace(/_/g, ''));
                 const capabilities = validResult.capabilities || lastValidationCapabilities || [];
@@ -1178,7 +1186,7 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                 }
                 const parameters = Object.entries(userParams).map(([k, v]) => ({ ParameterKey: k, ParameterValue: String(v) }));
                 progressEl.textContent += `Creating/updating stack "${stackName}"...\n`;
-                const provPayload = { stack_name: stackName, template_body: template, capabilities: capabilities };
+                const provPayload = { stack_name: stackName, template_body: templateToProvision, capabilities: capabilities };
                 if (parameters.length) provPayload.parameters = parameters;
                 const provResult = await callMcpTool('provision_cfn_stack', provPayload);
                 if (!provResult.success) {
@@ -1197,6 +1205,22 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
             } catch (err) {
                 progressEl.textContent += `Error: ${err.message}\n`;
                 provisionBtn.disabled = false;
+            }
+        }
+
+        async function verifyMcpServer() {
+            const progressEl = document.getElementById('stackProgress');
+            if (progressEl) progressEl.textContent = 'Calling get_mcp_server_info...\n';
+            try {
+                const result = await callMcpTool('get_mcp_server_info', {});
+                if (progressEl) {
+                    progressEl.textContent = 'MCP server response:\n' + JSON.stringify(result, null, 2);
+                    if (result.success && result.server) {
+                        progressEl.textContent += '\n\n✅ Connected to: ' + result.server + (result.provision_behaviors?.s3_auto_naming ? ' (S3 auto-naming enabled)' : '');
+                    }
+                }
+            } catch (err) {
+                if (progressEl) progressEl.textContent += '\nError: ' + err.message;
             }
         }
 

@@ -385,6 +385,9 @@
             color: var(--aws-blue);
         }
         
+        /* Hidden on Salesforce: requirements prompt runs automatically with quoting example */
+        .salesforce-onboarding-hidden { display: none !important; }
+        
         /* Monaco Editor Container */
         #editor-container {
             height: 600px;
@@ -477,11 +480,11 @@
             
             <div class="sidebar-menu">
                 <div class="menu-item active" id="designMenu" onclick="showPage('design')">
-                    <div class="menu-item-title">Design Agent</div>
+                    <div class="menu-item-title">Onboarding Agent</div>
                     <div class="menu-item-desc">Architect AWS solutions</div>
                 </div>
                 
-                <div class="menu-item disabled" id="provisioningMenu" onclick="showPage('deployment')" title="Validate template in Design Agent first">
+                <div class="menu-item disabled" id="provisioningMenu" onclick="showPage('deployment')" title="Validate template in Onboarding Agent first">
                     <div class="menu-item-title">Deployment Agent</div>
                     <div class="menu-item-desc">Deploy CloudFormation stacks</div>
                 </div>
@@ -500,7 +503,7 @@
         
         <!-- Main Content -->
         <div class="main-content">
-            <!-- Design Agent Page -->
+            <!-- Onboarding Agent Page -->
             <div id="designPage" style="display: flex; flex-direction: column; height: 100%;">
                 <div class="header">
                     <h1>AWS Architect AI</h1>
@@ -529,17 +532,18 @@
                     </div>
                 </div>
                 
-                <!-- Input Section -->
+                <!-- Input Section (label + example + textarea hidden on load; prompt auto-runs with quoting example) -->
                 <div class="input-section">
-                    <label for="promptInput">Infrastructure Requirements</label>
+                    <label for="promptInput" class="salesforce-onboarding-hidden">Infrastructure Requirements</label>
                     
-                    <div class="example-prompts">
+                    <div class="example-prompts salesforce-onboarding-hidden">
                         <span style="font-size: 0.9rem; color: #666; margin-right: 0.5rem;">Quick Example:</span>
                         <button class="example-btn" onclick="useExample('quoting')">Quoting Agent</button>
                     </div>
                     
                     <textarea 
                         id="promptInput" 
+                        class="salesforce-onboarding-hidden"
                         placeholder="Describe your infrastructure requirements...
 
 Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-east-1"
@@ -798,7 +802,7 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                 
                 <div style="padding: 2rem;">
                     <button class="aws-button aws-button-primary" onclick="showPage('design')">
-                        ← Back to Design Agent
+                        ← Back to Onboarding Agent
                     </button>
                 </div>
             </div>
@@ -813,6 +817,7 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
         let editor = null;
         let lastValidationCapabilities = [];
         let templateValidatedSuccessfully = false;
+        let autoGenerateOnLoadDone = false;
 
         // Initialize Monaco Editor
         require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' }});
@@ -896,7 +901,14 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
         function initWebSocket() {
             ws = new WebSocket(WS_URL);
             
-            ws.onopen = () => console.log('✅ WebSocket connected');
+            ws.onopen = () => {
+                console.log('✅ WebSocket connected');
+                if (!autoGenerateOnLoadDone) {
+                    autoGenerateOnLoadDone = true;
+                    useExample('quoting');
+                    generateInfrastructure();
+                }
+            };
             
             ws.onmessage = (event) => {
                 const message = JSON.parse(event.data);
@@ -1036,9 +1048,10 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                         automaticLayout: true,
                         minimap: { enabled: false }
                     });
+                    sendBtn.textContent = 'Generated';
+                    validateTemplate();
                 });
                 
-                sendBtn.textContent = 'Generated';
                 templateValidatedSuccessfully = false;
                 document.getElementById('provisioningMenu').classList.add('disabled');
                 
@@ -1087,6 +1100,8 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                     validateBtn.style.background = '#037f0c';
                     templateValidatedSuccessfully = true;
                     document.getElementById('provisioningMenu').classList.remove('disabled');
+                    showPage('deployment');
+                    setTimeout(function() { provisionStack(); }, 400);
                 } else {
                     resultDiv.innerHTML = `
                         <div class="error-banner">
@@ -1118,7 +1133,7 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
         function openInInfrastructureComposer() {
             const template = (editor ? editor.getValue() : currentTemplate) || '';
             if (!template.trim()) {
-                alert('Generate a template in Design Agent first.');
+                alert('Generate a template in Onboarding Agent first.');
                 return;
             }
             navigator.clipboard.writeText(template).catch(() => {});
@@ -1154,7 +1169,7 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
             }
             const template = editor ? editor.getValue() : currentTemplate;
             if (!template || !template.trim()) {
-                alert('Generate and validate a template in Design Agent first.');
+                alert('Generate and validate a template in Onboarding Agent first.');
                 return;
             }
             const provisionBtn = document.getElementById('provisionBtn');

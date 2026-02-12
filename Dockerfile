@@ -31,6 +31,10 @@ COPY mcp_server.py .
 COPY streamable_http_sigv4.py .
 COPY __init__.py .
 
+# Cross-account provision: stacks created in this account (set at build time; override at runtime if your orchestrator supports env)
+ENV CFN_TARGET_ACCOUNT_ID=471112858498
+ENV CFN_TARGET_ROLE_NAME=CrossAccountAccessRole
+
 # Expose port for MCP server
 EXPOSE 8000
 

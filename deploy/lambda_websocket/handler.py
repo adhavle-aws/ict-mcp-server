@@ -110,6 +110,7 @@ def lambda_handler(event, context):
         connection_id = async_event['connectionId']
         original_event = async_event['event']
 
+        print(f"[MCP] AGENT_ARN={AGENT_ARN} async tool={tool} requestId={request_id}")
         print(f"Async processing: {tool}, requestId: {request_id}")
         t_async_start = time.time()
 
@@ -236,6 +237,7 @@ def lambda_handler(event, context):
             tool = body.get('tool')
             arguments = body.get('arguments', {})
 
+            print(f"[MCP] AGENT_ARN={AGENT_ARN} tool={tool} requestId={request_id}")
             print(f"Tool: {tool}, Request: {request_id}")
 
             send_message(connection_id, {

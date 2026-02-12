@@ -816,96 +816,86 @@ def _load_canned_template(filename: str, format: str) -> str:
     return yaml_str
 
 
-# Internal: preset names (not exposed in API). UI sends a hidden directive in the prompt.
-TEMPLATE_PRESETS = ("three_tier", "microservices", "serverless_rest_api", "data_pipeline")
-_PRESET_PATTERN = re.compile(r"\n\n\[PRESET:(" + "|".join(re.escape(p) for p in TEMPLATE_PRESETS) + r)\]\s*$", re.IGNORECASE)
-
-
-def _extract_preset_from_prompt(prompt: str) -> "tuple[str, Optional[str]]":
-    """If prompt ends with [PRESET:name], return (prompt_with_directive_stripped, name); else (prompt, None)."""
-    m = _PRESET_PATTERN.search(prompt)
-    if m:
-        preset = m.group(1).lower()
-        if preset in TEMPLATE_PRESETS:
-            return (prompt[: m.start()].rstrip(), preset)
-    return (prompt, None)
+# Template IDs for Quick Example buttons (Quoting Agent -> three_tier, etc.)
+TEMPLATE_IDS = ("three_tier", "microservices", "serverless_rest_api", "data_pipeline")
 
 
 @mcp.tool()
-def build_cfn_template(prompt: str, format: str = "yaml") -> dict:
+def build_cfn_template(prompt: str, format: str = "yaml", template_id: Optional[str] = None) -> dict:
     """
     Build a CloudFormation template from a natural language prompt using Claude.
 
     Args:
         prompt: Natural language description of the infrastructure
         format: Output format - 'json' or 'yaml' (default: yaml)
+        template_id: Optional. When set (e.g. from a Quick Example button), use this canned template.
+            One of: three_tier, microservices, serverless_rest_api, data_pipeline.
 
     Returns:
         dict with success status and generated CloudFormation template
     """
     t0 = time.time()
     try:
-        prompt_clean, preset = _extract_preset_from_prompt(prompt)
-        # When UI sent a hidden directive, use that selection (not exposed to users)
-        if preset:
-            if preset == "three_tier":
+        # Button click: use canned template when template_id is provided
+        if template_id and template_id in TEMPLATE_IDS:
+            if template_id == "three_tier":
                 template_str = _load_three_tier_template(format)
             else:
                 template_str = _load_canned_template(
-                    {"microservices": "microservices.yaml", "serverless_rest_api": "serverless_rest_api.yaml", "data_pipeline": "data_pipeline.yaml"}[preset],
+                    {"microservices": "microservices.yaml", "serverless_rest_api": "serverless_rest_api.yaml", "data_pipeline": "data_pipeline.yaml"}[template_id],
                     format,
                 )
             if template_str:
-                _log_timing("total", "build_cfn_template", t0, extra="source=preset")
+                _log_timing("total", "build_cfn_template", t0, extra="source=canned")
                 return {
                     "success": True,
                     "template": template_str,
                     "format": format or "yaml",
-                    "prompt": prompt_clean,
+                    "prompt": prompt,
                 }
             # fall through if load failed
-        if _is_three_tier_request(prompt_clean):
+        if _is_three_tier_request(prompt):
             template_str = _load_three_tier_template(format)
             if template_str:
-                _log_timing("total", "build_cfn_template", t0, extra="source=preset")
+                _log_timing("total", "build_cfn_template", t0, extra="source=canned")
                 return {
                     "success": True,
                     "template": template_str,
                     "format": format or "yaml",
-                    "prompt": prompt_clean,
+                    "prompt": prompt,
                 }
             # fall through to Bedrock if load failed
-        if _is_microservices_request(prompt_clean):
+        if _is_microservices_request(prompt):
             template_str = _load_canned_template("microservices.yaml", format)
             if template_str:
-                _log_timing("total", "build_cfn_template", t0, extra="source=preset")
+                _log_timing("total", "build_cfn_template", t0, extra="source=canned")
                 return {
                     "success": True,
                     "template": template_str,
                     "format": format or "yaml",
-                    "prompt": prompt_clean,
+                    "prompt": prompt,
                 }
             # fall through to Bedrock if load failed
-        if _is_serverless_rest_request(prompt_clean):
+        if _is_serverless_rest_request(prompt):
             template_str = _load_canned_template("serverless_rest_api.yaml", format)
             if template_str:
-                _log_timing("total", "build_cfn_template", t0, extra="source=preset")
+                _log_timing("total", "build_cfn_template", t0, extra="source=canned")
                 return {
                     "success": True,
                     "template": template_str,
                     "format": format or "yaml",
-                    "prompt": prompt_clean,
+                    "prompt": prompt,
                 }
             # fall through to Bedrock if load failed
-        if _is_data_pipeline_request(prompt_clean):
+        if _is_data_pipeline_request(prompt):
             template_str = _load_canned_template("data_pipeline.yaml", format)
             if template_str:
-                _log_timing("total", "build_cfn_template", t0, extra="source=preset")
+                _log_timing("total", "build_cfn_template", t0, extra="source=canned")
                 return {
                     "success": True,
                     "template": template_str,
                     "format": format or "yaml",
-                    "prompt": prompt_clean,
+                    "prompt": prompt,
                 }
             # fall through to Bedrock if load failed
         bedrock = get_bedrock_client()
@@ -1124,7 +1114,7 @@ Outputs:
                     system_prompt += "\n\nOFFICIAL SCHEMA HINTS (use exact property names and required fields where applicable):\n" + "\n".join(schema_parts)
             except Exception:
                 pass
-        user_message = f"""Generate a CloudFormation template for: {prompt_clean}
+        user_message = f"""Generate a CloudFormation template for: {prompt}
 
 Format: {format.upper()}. Verify every Ref and GetAtt points to a defined resource. Return ONLY the template. Keep it minimal."""
         t_bedrock = time.time()
@@ -1145,7 +1135,7 @@ Format: {format.upper()}. Verify every Ref and GetAtt points to a defined resour
             'success': True,
             'template': template_str,
             'format': format,
-            'prompt': prompt_clean
+            'prompt': prompt
         }
         if out.get("thinking"):
             result["thinking"] = out["thinking"]

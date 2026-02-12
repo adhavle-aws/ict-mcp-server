@@ -1,0 +1,3 @@
+# Lint dependencies (optional). Install with: pip install -r requirements-lint.txt
+# Use for: scripts/lint-templates.sh, pre-commit, or CI
+cfn-lint>=0.90.0

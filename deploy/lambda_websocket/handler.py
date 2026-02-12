@@ -73,29 +73,40 @@ def call_mcp_tool(tool_name, arguments):
     t_before = time.time()
     with urllib.request.urlopen(req, timeout=300) as response:
         response_data = response.read().decode('utf-8')
+        content_type = response.headers.get('Content-Type', '') if hasattr(response, 'headers') else ''
     t_after = time.time()
-    print(f"[E2E] Lambda: AgentCore HTTP wait={round(t_after - t_before, 2)}s response_len={len(response_data)}")
+    print(f"[E2E] Lambda: AgentCore HTTP wait={round(t_after - t_before, 2)}s response_len={len(response_data)} Content-Type={content_type}")
     print(f"Response data (first 500 chars): {response_data[:500]}")
 
-    # Parse SSE format - look for "data: " line
     if not response_data or not response_data.strip():
         print("Response data empty")
         return {'error': 'Empty response from AgentCore'}
 
-    lines = response_data.split('\n')
-    for line in lines:
-        if line.startswith('data: '):
-            json_data = line[6:].strip()  # Remove 'data: ' prefix
+    # 1) Try whole body as JSON (AgentCore may return application/json for non-streaming)
+    stripped = response_data.strip()
+    if stripped.startswith('{'):
+        try:
+            result = json.loads(response_data)
+            if isinstance(result, dict) and ('result' in result or 'error' in result or 'id' in result):
+                return result
+        except json.JSONDecodeError:
+            pass
+
+    # 2) Parse SSE format - look for "data:" or "data: " lines (use last non-empty)
+    last_data = None
+    for line in response_data.split('\n'):
+        line = line.strip()
+        if line.startswith('data:'):
+            json_data = line[5:].strip()  # "data:" or "data: "
             if not json_data:
                 continue
             try:
-                result = json.loads(json_data)
-                return result
-            except json.JSONDecodeError as e:
-                print(f"JSON decode error on SSE data: {e}")
-                return {'error': f'Invalid JSON in AgentCore response: {e}'}
+                last_data = json.loads(json_data)
+            except json.JSONDecodeError:
+                continue
+    if last_data is not None:
+        return last_data
 
-    # If no data line found
     return {'error': 'No data in SSE response'}
 
 

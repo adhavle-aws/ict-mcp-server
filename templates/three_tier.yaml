@@ -1,0 +1,525 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Highly available 3-tier web application with private network, auto-scaling, RDS, and S3 storage for CPU-intensive workloads
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment environment
+  InstanceType:
+    Type: String
+    Default: c5.xlarge
+    AllowedValues: [c5.large, c5.xlarge, c5.2xlarge, c6i.xlarge, c6i.2xlarge]
+    Description: EC2 instance type (compute-optimized for CPU-intensive workloads)
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
+    Description: Latest Amazon Linux 2023 AMI
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Existing VPC ID for the application
+  PublicSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: At least 2 public subnet IDs in different AZs for ALB
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: At least 2 private subnet IDs in different AZs for ASG and RDS
+  DBInstanceIdentifierSuffix:
+    Type: String
+    Default: appdb
+    Description: Suffix for RDS identifier (provisioner auto-fills unique value)
+  BucketNameSuffix:
+    Type: String
+    Default: files
+    Description: Suffix for S3 bucket name (provisioner auto-fills timestamp)
+  DBInstanceClass:
+    Type: String
+    Default: db.r6i.xlarge
+    AllowedValues: [db.r6i.large, db.r6i.xlarge, db.r6i.2xlarge]
+    Description: RDS instance class (memory-optimized for transaction data)
+  DBAllocatedStorage:
+    Type: Number
+    Default: 20
+    MinValue: 20
+    MaxValue: 1000
+    Description: Database storage in GB for transaction data
+  AutoScalingMinSize:
+    Type: Number
+    Default: 2
+    Description: Minimum instances in ASG for high availability
+  AutoScalingMaxSize:
+    Type: Number
+    Default: 6
+    Description: Maximum instances in ASG for CPU-intensive workloads
+  AutoScalingDesiredCapacity:
+    Type: Number
+    Default: 2
+    Description: Desired instances in ASG for high availability
+
+Conditions:
+  IsProduction: !Equals [!Ref Environment, prod]
+
+Resources:
+  DBSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${AWS::StackName}-db-secret'
+      Description: Auto-generated database credentials for transaction database
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "dbadmin"}'
+        GenerateStringKey: password
+        PasswordLength: 24
+        ExcludeCharacters: "\"@/\\"
+      Tags:
+        - Key: stack-creator
+          Value: aws-architect-mcp
+        - Key: project
+          Value: mwc-demo
+        - Key: environment
+          Value: !Ref Environment
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Application Load Balancer
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: Allow HTTP from internet
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: Allow HTTPS from internet
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: app-alb-sg
+        - Key: stack-creator
+          Value: aws-architect-mcp
+        - Key: project
+          Value: mwc-demo
+        - Key: environment
+          Value: !Ref Environment
+
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for application tier
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+          Description: Allow traffic from ALB
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: app-sg
+        - Key: stack-creator
+          Value: aws-architect-mcp
+        - Key: project
+          Value: mwc-demo
+        - Key: environment
+          Value: !Ref Environment
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for RDS database
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref AppSecurityGroup
+          Description: Allow PostgreSQL from application tier
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: app-db-sg
+        - Key: stack-creator
+          Value: aws-architect-mcp
+        - Key: project
+          Value: mwc-demo
+        - Key: environment
+          Value: !Ref Environment
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS database across multiple AZs
+      SubnetIds: !Ref PrivateSubnetIds
+      Tags:
+        - Key: Name
+          Value: app-db-subnets
+        - Key: stack-creator
+          Value: aws-architect-mcp
+        - Key: project
+          Value: mwc-demo
+        - Key: environment
+          Value: !Ref Environment
+
+  TransactionDatabase:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: !Sub 'appDB-${DBInstanceIdentifierSuffix}'
+      Engine: postgres
+      EngineVersion: '17'
+      MasterUsername: dbadmin
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DBSecret}:SecretString:password}}'
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DatabaseSecurityGroup
+      AllocatedStorage: !Ref DBAllocatedStorage
+      DBInstanceClass: !Ref DBInstanceClass
+      StorageType: gp3
+      StorageEncrypted: true
+      BackupRetentionPeriod: 30
+      PreferredBackupWindow: '03:00-04:00'
+      PreferredMaintenanceWindow: 'sun:04:00-sun:05:00'
+      PubliclyAccessible: false
+      MultiAZ: !If [IsProduction, true, false]
+      EnableCloudwatchLogsExports:
+        - postgresql
+      EnableIAMDatabaseAuthentication: true
+      DeletionProtection: !If [IsProduction, true, false]
+      Tags:
+        - Key: Name
+          Value: app-transaction-db
+        - Key: stack-creator
+          Value: aws-architect-mcp
+        - Key: project
+          Value: mwc-demo
+        - Key: environment
+          Value: !Ref Environment
+
+  FileStorageBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'app-${AWS::AccountId}-${BucketNameSuffix}'
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: TransitionToIA
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 30
+                StorageClass: STANDARD_IA
+              - TransitionInDays: 90
+                StorageClass: GLACIER
+      Tags:
+        - Key: Name
+          Value: app-file-storage
+        - Key: stack-creator
+          Value: aws-architect-mcp
+        - Key: project
+          Value: mwc-demo
+        - Key: environment
+          Value: !Ref Environment
+
+  AppInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub '${FileStorageBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt FileStorageBucket.Arn
+        - PolicyName: SecretsManagerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref DBSecret
+      Tags:
+        - Key: stack-creator
+          Value: aws-architect-mcp
+        - Key: project
+          Value: mwc-demo
+        - Key: environment
+          Value: !Ref Environment
+
+  AppInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref AppInstanceRole
+
+  AppLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !Ref LatestAmiId
+        InstanceType: !Ref InstanceType
+        IamInstanceProfile:
+          Arn: !GetAtt AppInstanceProfile.Arn
+        SecurityGroupIds:
+          - !Ref AppSecurityGroup
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash
+            set -e
+            yum update -y
+            yum install -y amazon-cloudwatch-agent
+            yum install -y python3 python3-pip
+            pip3 install boto3 psycopg2-binary
+
+            # Configure CloudWatch agent
+            cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<EOF
+            {
+              "metrics": {
+                "namespace": "CustomApp",
+                "metrics_collected": {
+                  "cpu": {
+                    "measurement": [
+                      {
+                        "name": "cpu_usage_idle",
+                        "rename": "CPU_IDLE",
+                        "unit": "Percent"
+                      },
+                      "cpu_usage_iowait"
+                    ],
+                    "metrics_collection_interval": 60
+                  },
+                  "mem": {
+                    "measurement": [
+                      {
+                        "name": "mem_used_percent",
+                        "rename": "MEM_USED",
+                        "unit": "Percent"
+                      }
+                    ],
+                    "metrics_collection_interval": 60
+                  }
+                }
+              }
+            }
+            EOF
+
+            /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+              -a fetch-config \
+              -m ec2 \
+              -s \
+              -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+
+            # Placeholder for application deployment
+            echo "Application tier ready" > /var/www/html/index.html
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: app-instance
+              - Key: stack-creator
+                Value: aws-architect-mcp
+              - Key: project
+                Value: mwc-demo
+              - Key: environment
+                Value: !Ref Environment
+          - ResourceType: volume
+            Tags:
+              - Key: Name
+                Value: app-volume
+              - Key: stack-creator
+                Value: aws-architect-mcp
+              - Key: project
+                Value: mwc-demo
+              - Key: environment
+                Value: !Ref Environment
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: application
+      Scheme: internet-facing
+      Subnets: !Ref PublicSubnetIds
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: app-alb
+        - Key: stack-creator
+          Value: aws-architect-mcp
+        - Key: project
+          Value: mwc-demo
+        - Key: environment
+          Value: !Ref Environment
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: 8080
+      Protocol: HTTP
+      VpcId: !Ref VpcId
+      HealthCheckEnabled: true
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      TargetType: instance
+      Tags:
+        - Key: Name
+          Value: app-tg
+        - Key: stack-creator
+          Value: aws-architect-mcp
+        - Key: project
+          Value: mwc-demo
+        - Key: environment
+          Value: !Ref Environment
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  AppAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier: !Ref PrivateSubnetIds
+      LaunchTemplate:
+        LaunchTemplateId: !Ref AppLaunchTemplate
+        Version: !GetAtt AppLaunchTemplate.LatestVersionNumber
+      MinSize: !Ref AutoScalingMinSize
+      MaxSize: !Ref AutoScalingMaxSize
+      DesiredCapacity: !Ref AutoScalingDesiredCapacity
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: 300
+      TargetGroupARNs:
+        - !Ref TargetGroup
+      Tags:
+        - Key: Name
+          Value: app-asg-instance
+          PropagateAtLaunch: true
+        - Key: stack-creator
+          Value: aws-architect-mcp
+          PropagateAtLaunch: true
+        - Key: project
+          Value: mwc-demo
+          PropagateAtLaunch: true
+        - Key: environment
+          Value: !Ref Environment
+          PropagateAtLaunch: true
+
+  CPUScalingPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref AppAutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 70.0
+
+  MemoryScalingPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref AppAutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageNetworkIn
+        TargetValue: 10000000.0
+
+Outputs:
+  LoadBalancerDNS:
+    Description: DNS name of the Application Load Balancer
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+    Export:
+      Name: !Sub '${AWS::StackName}-ALB-DNS'
+
+  LoadBalancerURL:
+    Description: URL to access the application
+    Value: !Sub 'http://${ApplicationLoadBalancer.DNSName}'
+
+  DatabaseEndpoint:
+    Description: RDS database endpoint address
+    Value: !GetAtt TransactionDatabase.Endpoint.Address
+    Export:
+      Name: !Sub '${AWS::StackName}-DB-Endpoint'
+
+  DatabasePort:
+    Description: RDS database port
+    Value: !GetAtt TransactionDatabase.Endpoint.Port
+    Export:
+      Name: !Sub '${AWS::StackName}-DB-Port'
+
+  FileStorageBucketName:
+    Description: S3 bucket name for file and video storage
+    Value: !Ref FileStorageBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-S3-Bucket'
+
+  FileStorageBucketArn:
+    Description: S3 bucket ARN for file and video storage
+    Value: !GetAtt FileStorageBucket.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-S3-Bucket-ARN'
+
+  AutoScalingGroupName:
+    Description: Name of the Auto Scaling Group
+    Value: !Ref AppAutoScalingGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-ASG-Name'
+
+  DatabaseSecretArn:
+    Description: ARN of the Secrets Manager secret for database credentials
+    Value: !Ref DBSecret
+    Export:
+      Name: !Sub '${AWS::StackName}-DB-Secret-ARN'

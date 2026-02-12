@@ -1,0 +1,309 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Data processing pipeline - S3, Kinesis, Lambda, Glue, Step Functions
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment environment
+  GlueDatabaseName:
+    Type: String
+    Default: pipeline_catalog
+    Description: Glue Data Catalog database name (alphanumeric and underscore only)
+
+Resources:
+  IngestionBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-ingestion'
+        - Key: Environment
+          Value: !Ref Environment
+
+  ProcessedBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-processed'
+
+  KinesisStream:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      Name: !Sub '${AWS::StackName}-stream'
+      ShardCount: 1
+      RetentionPeriodHours: 24
+      StreamEncryption:
+        EncryptionType: KMS
+        KeyId: alias/aws/kinesis
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-stream'
+
+  LambdaPipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-lambda-role'
+
+  LambdaPipelinePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: PipelineAccess
+      Roles:
+        - !Ref LambdaPipelineRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - kinesis:GetRecords
+              - kinesis:GetShardIterator
+              - kinesis:DescribeStream
+              - kinesis:ListShards
+            Resource: !GetAtt KinesisStream.Arn
+          - Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+            Resource:
+              - !Sub '${ProcessedBucket.Arn}/*'
+              - !Sub '${IngestionBucket.Arn}/*'
+
+  StreamConsumerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-stream-consumer'
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !GetAtt LambdaPipelineRole.Arn
+      Timeout: 60
+      MemorySize: 256
+      Environment:
+        Variables:
+          PROCESSED_BUCKET: !Ref ProcessedBucket
+      Code:
+        ZipFile: |
+          import json
+          import base64
+          import boto3
+          import os
+          def handler(event, context):
+              s3 = boto3.client('s3')
+              bucket = os.environ['PROCESSED_BUCKET']
+              for record in event.get('Records', []):
+                  data = record.get('kinesis', {}).get('data')
+                  if data:
+                      payload = base64.b64decode(data).decode('utf-8')
+                      key = "kinesis/" + record['kinesis']['sequenceNumber'] + ".json"
+                      s3.put_object(Bucket=bucket, Key=key, Body=payload)
+              return {'processed': len(event.get('Records', []))}
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-stream-consumer'
+
+  KinesisEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt KinesisStream.Arn
+      FunctionName: !Ref StreamConsumerFunction
+      StartingPosition: LATEST
+      BatchSize: 100
+
+  GlueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Ref GlueDatabaseName
+        Description: Data Catalog for pipeline (use with Athena)
+
+  GlueRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-glue-role'
+
+  GlueCrawler:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Name: !Sub '${AWS::StackName}-crawler'
+      Role: !Ref GlueRole
+      DatabaseName: !Ref GlueDatabaseName
+      Targets:
+        S3Targets:
+          - Path: !Sub 's3://${ProcessedBucket}/'
+      SchemaChangePolicy:
+        UpdateBehavior: UPDATE_IN_DATABASE
+        DeleteBehavior: LOG
+      Configuration: '{"Version":1.0,"CrawlerOutput":{"Partitions":{"AddOrUpdateBehavior":"InheritFromTable"}}}'
+      Tags:
+        Name: !Sub '${AWS::StackName}-crawler'
+
+  StepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-sfn-role'
+
+  StepFunctionsPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: InvokePipeline
+      Roles:
+        - !Ref StepFunctionsRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - glue:StartCrawler
+              - glue:GetCrawler
+            Resource: !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:crawler/${AWS::StackName}-crawler'
+
+  PipelineStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub '${AWS::StackName}-pipeline'
+      RoleArn: !GetAtt StepFunctionsRole.Arn
+      DefinitionString: |
+        {
+          "StartAt": "ProcessData",
+          "States": {
+            "ProcessData": {
+              "Type": "Pass",
+              "Result": {"pipeline": "ready"},
+              "ResultPath": "$.result",
+              "End": true
+            }
+          }
+        }
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-pipeline'
+
+  ScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${AWS::StackName}-daily'
+      Description: Trigger pipeline daily
+      ScheduleExpression: rate(1 day)
+      State: ENABLED
+      Targets:
+        - Id: PipelineTarget
+          Arn: !GetAtt PipelineStateMachine.Arn
+          RoleArn: !GetAtt EventBridgeInvokeRole.Arn
+
+  EventBridgeInvokeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-events-role'
+
+  EventBridgeInvokePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: InvokeStepFunctions
+      Roles:
+        - !Ref EventBridgeInvokeRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: states:StartExecution
+            Resource: !GetAtt PipelineStateMachine.Arn
+
+Outputs:
+  IngestionBucketName:
+    Description: S3 bucket for raw data ingestion
+    Value: !Ref IngestionBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-IngestionBucket'
+  ProcessedBucketName:
+    Description: S3 bucket for processed data
+    Value: !Ref ProcessedBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-ProcessedBucket'
+  KinesisStreamName:
+    Description: Kinesis Data Stream name
+    Value: !Ref KinesisStream
+    Export:
+      Name: !Sub '${AWS::StackName}-StreamName'
+  GlueDatabaseName:
+    Description: Glue Data Catalog database (use with Athena)
+    Value: !Ref GlueDatabase
+    Export:
+      Name: !Sub '${AWS::StackName}-GlueDatabase'
+  GlueCrawlerName:
+    Description: Glue Crawler name (run to populate catalog for Athena)
+    Value: !Ref GlueCrawler
+    Export:
+      Name: !Sub '${AWS::StackName}-GlueCrawler'
+  StateMachineArn:
+    Description: Step Functions state machine ARN
+    Value: !GetAtt PipelineStateMachine.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-StateMachine'

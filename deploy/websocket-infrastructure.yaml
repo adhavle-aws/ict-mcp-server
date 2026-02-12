@@ -130,17 +130,27 @@ Resources:
               print(f"[E2E] Lambda: AgentCore HTTP wait={round(t_after - t_before, 2)}s response_len={len(response_data)}")
               if not response_data or not response_data.strip():
                   return {'error': 'Empty response from AgentCore'}
-              lines = response_data.split('\n')
-              for line in lines:
-                  if line.startswith('data: '):
-                      json_data = line[6:].strip()
+              stripped = response_data.strip()
+              if stripped.startswith('{'):
+                  try:
+                      result = json.loads(response_data)
+                      if isinstance(result, dict) and ('result' in result or 'error' in result or 'id' in result):
+                          return result
+                  except json.JSONDecodeError:
+                      pass
+              last_data = None
+              for line in response_data.split('\n'):
+                  line = line.strip()
+                  if line.startswith('data:'):
+                      json_data = line[5:].strip()
                       if not json_data:
                           continue
                       try:
-                          return json.loads(json_data)
-                      except json.JSONDecodeError as e:
-                          print(f"JSON decode error on SSE data: {e}")
-                          return {'error': f'Invalid JSON in AgentCore response: {e}'}
+                          last_data = json.loads(json_data)
+                      except json.JSONDecodeError:
+                          continue
+              if last_data is not None:
+                  return last_data
               return {'error': 'No data in SSE response'}
           
           def lambda_handler(event, context):

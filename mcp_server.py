@@ -935,7 +935,7 @@ RDS (if database needed):
 ALB / TARGET GROUP / EC2 (no ASG):
 - ALB and Target Group: omit Name or use short literal (max 32 chars). Never !Sub with AWS::StackName for these.
 - Target Group: VpcId: !Ref VpcId, HealthCheckPath: /, HealthCheckProtocol: HTTP.
-- Use a single AWS::EC2::Instance (or fixed count) behind the ALB. Register the instance with the target group using AWS::ElasticLoadBalancingV2::TargetGroupTargetAttachment (TargetGroupArn, TargetId: !Ref AppInstance). Add AWS::ElasticLoadBalancingV2::Listener (DefaultActions: Forward to target group) so ALB forwards to the instance.
+- Use a single AWS::EC2::Instance (or fixed count) behind the ALB. Register the instance with the target group using AWS::ElasticLoadBalancingV2::TargetGroupAttachment (TargetGroupArn, TargetId: !Ref AppInstance). Add AWS::ElasticLoadBalancingV2::Listener (DefaultActions: Forward to target group) so ALB forwards to the instance.
 - EC2 Instance: Tags (list of Key/Value), not TagSpecifications. Use LaunchTemplate (not LaunchConfiguration) for the instance; LaunchTemplate TagSpecifications at resource level use ResourceType: "launch-template" only.
 
 LAMBDA (if needed):

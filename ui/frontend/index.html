@@ -1003,6 +1003,7 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                 
                 const templateArgs = { prompt, format: 'yaml' };
                 if (currentTemplatePreset) templateArgs.template_id = currentTemplatePreset;
+                console.log('[build_cfn_template] request', { hasTemplateId: !!templateArgs.template_id, template_id: templateArgs.template_id });
                 const templateResult = await callMcpTool('build_cfn_template', templateArgs);
                 if (!templateResult.success) throw new Error(templateResult.error);
                 if (!templateResult.template) throw new Error(templateResult.error || 'No template');

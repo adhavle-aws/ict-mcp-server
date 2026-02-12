@@ -172,7 +172,7 @@ def _s3_bucket_name_uses_suffix(bucket_name_value) -> bool:
 
 
 def _normalize_cfn_template_for_provision(template_body: str) -> str:
-    """Strip invalid keys from template so provision succeeds (e.g. ScalingPolicy EstimatedWarmupSeconds -> EstimatedInstanceWarmupSeconds; S3 BucketName uses BucketNameSuffix; ScaleInCooldown/ScaleOutCooldown inside TargetTrackingConfiguration; LoggingLevel/DataTraceEnabled at AWS::ApiGateway::Stage root; Tags inside CloudFront DistributionConfig)."""
+    """Strip invalid keys from template so provision succeeds (e.g. S3 BucketPolicy PolicyText -> PolicyDocument; ScalingPolicy EstimatedWarmupSeconds -> EstimatedInstanceWarmupSeconds; S3 BucketName uses BucketNameSuffix; ScaleInCooldown/ScaleOutCooldown inside TargetTrackingConfiguration; LoggingLevel/DataTraceEnabled at AWS::ApiGateway::Stage root; Tags inside CloudFront DistributionConfig)."""
     try:
         # String-level fallback: fix app-${AWS::AccountId}-<fixed> so provisioner can inject BucketNameSuffix (catches any structure parse might miss)
         if 'S3::Bucket' in template_body and 'BucketNameSuffix' not in template_body and '${BucketNameSuffix}' not in template_body:
@@ -287,6 +287,18 @@ def _normalize_cfn_template_for_provision(template_body: str) -> str:
                         if 'BucketNameSuffix' not in params:
                             params['BucketNameSuffix'] = {'Type': 'String', 'Default': ''}
                         changed = True
+                elif rtype == 'AWS::S3::BucketPolicy':
+                    # CloudFormation uses PolicyDocument, not PolicyText
+                    policy_text = props.pop('PolicyText', None)
+                    if policy_text is not None and 'PolicyDocument' not in props:
+                        if isinstance(policy_text, str):
+                            try:
+                                props['PolicyDocument'] = json.loads(policy_text)
+                            except Exception:
+                                props['PolicyDocument'] = policy_text
+                        else:
+                            props['PolicyDocument'] = policy_text
+                        changed = True
                 elif rtype == 'AWS::CloudFormation::Stack':
                     # Normalize nested stack inline template so ScalingPolicy etc. are fixed in child stacks
                     tb = props.get('TemplateBody')
@@ -349,6 +361,17 @@ def _normalize_cfn_template_for_provision(template_body: str) -> str:
                             props['BucketName'] = {'Fn::Sub': f'app-${{AWS::AccountId}}-${{BucketNameSuffix}}-{safe_id}'}
                             if 'BucketNameSuffix' not in params:
                                 params['BucketNameSuffix'] = {'Type': 'String', 'Default': ''}
+                            yaml_changed = True
+                    elif rtype == 'AWS::S3::BucketPolicy':
+                        policy_text = props.pop('PolicyText', None)
+                        if policy_text is not None and 'PolicyDocument' not in props:
+                            if isinstance(policy_text, str):
+                                try:
+                                    props['PolicyDocument'] = json.loads(policy_text)
+                                except Exception:
+                                    props['PolicyDocument'] = policy_text
+                            else:
+                                props['PolicyDocument'] = policy_text
                             yaml_changed = True
                     elif rtype == 'AWS::CloudFormation::Stack':
                         tb = props.get('TemplateBody')
@@ -1258,11 +1281,10 @@ def provision_cfn_stack(
             _db_suffix_key = next((k for k in template_param_keys if _is_db_suffix_key(k)), None)
             template_has_db_suffix = _db_suffix_key is not None or 'DBInstanceIdentifierSuffix' in template_body or 'dbinstanceidentifiersuffix' in template_body.lower()
             if template_has_db_suffix:
-                current = (user_params.get(_db_suffix_key or 'DBInstanceIdentifierSuffix') or '').strip().lower()
-                if not current or current == 'appdb':
-                    key_to_set = _db_suffix_key or 'DBInstanceIdentifierSuffix'
-                    user_params[key_to_set] = unique_suffix
-            # S3: always inject unique BucketNameSuffix on create so bucket name is unique (avoids "already exists" for any default e.g. media, files, content)
+                key_to_set = _db_suffix_key or 'DBInstanceIdentifierSuffix'
+                user_params[key_to_set] = unique_suffix
+                template_param_keys.add(key_to_set)  # ensure we send it even if parse had failed earlier
+            # S3: always inject unique BucketNameSuffix on create (we strip BucketName so this is rarely needed; keep for templates that reference it)
             def _is_bucket_suffix_key(k):
                 return (k or '').strip().lower() == 'bucketnamesuffix'
             _bucket_suffix_key = next((k for k in template_param_keys if _is_bucket_suffix_key(k)), None)
@@ -1270,6 +1292,7 @@ def provision_cfn_stack(
             if template_has_bucket_suffix:
                 key_to_set = _bucket_suffix_key or 'BucketNameSuffix'
                 user_params[key_to_set] = unique_suffix
+                template_param_keys.add(key_to_set)
         # Final safeguard: never send literal "default" for VPC params to CloudFormation.
         # Only send parameters that exist in the template to avoid "Parameters [...] do not exist in the template".
         if user_params:

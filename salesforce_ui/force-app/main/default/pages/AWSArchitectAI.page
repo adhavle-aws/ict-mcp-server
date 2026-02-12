@@ -1019,7 +1019,7 @@ Example: Create a serverless API with API Gateway, Lambda, and DynamoDB in us-ea
                 // Step 2: CloudFormation Template
                 document.getElementById('templateContent').innerHTML = '<div class="loading">⏳ Step 2/2: Generating template...</div>';
                 
-                const templateArgs = { prompt, format: 'yaml' };
+                const templateArgs = { prompt: currentTemplatePreset ? (prompt + ' [PRESET: ' + currentTemplatePreset + ']') : prompt, format: 'yaml' };
                 if (currentTemplatePreset) templateArgs.template_id = currentTemplatePreset;
                 const templateResult = await callMcpTool('build_cfn_template', templateArgs);
                 if (!templateResult.success) throw new Error(templateResult.error);

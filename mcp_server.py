@@ -836,6 +836,14 @@ def build_cfn_template(prompt: str, format: str = "yaml", template_id: Optional[
     """
     t0 = time.time()
     try:
+        # If AgentCore/LLM did not pass template_id, detect preset from prompt (UI embeds "[PRESET: three_tier]" etc.)
+        if not (template_id and template_id.strip()) and prompt:
+            for tid in TEMPLATE_IDS:
+                if f"PRESET: {tid}" in prompt or f"[PRESET:{tid}" in prompt:
+                    template_id = tid
+                    break
+        if template_id:
+            template_id = (template_id or "").strip()
         # Button click: use canned template when template_id is provided
         if template_id and template_id in TEMPLATE_IDS:
             if template_id == "three_tier":
@@ -847,11 +855,16 @@ def build_cfn_template(prompt: str, format: str = "yaml", template_id: Optional[
                 )
             if template_str:
                 _log_timing("total", "build_cfn_template", t0, extra="source=canned")
+                out_prompt = prompt
+                for tid in TEMPLATE_IDS:
+                    for marker in (f" [PRESET: {tid}]", f"[PRESET:{tid}]", f"PRESET: {tid}"):
+                        if marker in out_prompt:
+                            out_prompt = out_prompt.replace(marker, "").strip()
                 return {
                     "success": True,
                     "template": template_str,
                     "format": format or "yaml",
-                    "prompt": prompt,
+                    "prompt": out_prompt or prompt,
                 }
             # fall through if load failed
         if _is_three_tier_request(prompt):
@@ -1414,9 +1427,11 @@ def provision_cfn_stack(
                 template_param_keys = set(yaml.safe_load(template_body).get('Parameters', {}).keys())
         except Exception:
             pass
-        # When parse failed, detect VPC param names from template body so default VPC fill still works
+        # When parse failed, detect VPC param names from template body so default VPC fill still works.
+        # Do NOT add SubnetId: it often appears as a resource property (e.g. EC2 SubnetId:) and would cause
+        # "Parameters [SubnetId] do not exist in the template" when the template only has VpcId/PublicSubnetIds/PrivateSubnetIds.
         if not template_param_keys and ('Parameters' in template_body or '"Parameters"' in template_body):
-            for name in ('VpcId', 'PublicSubnetIds', 'PrivateSubnetIds', 'SubnetId'):
+            for name in ('VpcId', 'PublicSubnetIds', 'PrivateSubnetIds'):
                 if re.search(r'["\']?' + re.escape(name) + r'["\']?\s*[:{]', template_body):
                     template_param_keys.add(name)
         # Keys that must never be sent as literal "default" (match case-insensitively)
@@ -1429,7 +1444,7 @@ def provision_cfn_stack(
         # Check if we need to resolve VPC: template has these params (parsed or detected in body) or client sent them
         template_has_vpc_params = any(k for k in template_param_keys if _is_vpc_param_key(k))
         if not template_has_vpc_params and ('Parameters' in template_body or '"Parameters"' in template_body):
-            for name in ('VpcId', 'PublicSubnetIds', 'PrivateSubnetIds', 'SubnetId'):
+            for name in ('VpcId', 'PublicSubnetIds', 'PrivateSubnetIds'):
                 if name in template_body:
                     template_has_vpc_params = True
                     break
